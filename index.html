@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Departures</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+</head>
+<body class="mode-departures">
+  <main id="appShell" class="app-shell">
+    <section class="panel no-print">
+      <div class="top-toolbar">
+        <div class="mode-menu" role="tablist" aria-label="Liste türü seçimi">
+          <button id="departuresModeBtn" class="mode-btn active" type="button" aria-pressed="true">Departures</button>
+          <button id="arrivalsModeBtn" class="mode-btn" type="button" aria-pressed="false">Arrivals</button>
+          <button id="dndModeBtn" class="mode-btn" type="button" aria-pressed="false">DND / TİST</button>
+        </div>
+      </div>
+      <h1 id="appTitle" class="app-title">Departures</h1>
+      <div class="upload-card compact" id="dropZone">
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="Excel dosyası seç" />
+        <div class="upload-icon">⬆</div>
+        <strong id="uploadTitle">Excel Yükle</strong>
+      </div>
+
+      <div id="currentRoomsPanel" class="current-rooms-panel" hidden>
+        <label for="currentRoomsInput">Güncel oda listesi</label>
+        <input id="currentRoomsInput" type="file" accept=".xlsx,.xls,.csv" multiple disabled />
+        <small>Birden fazla güncel oda Excel'i yükleyebilirsin. DND / TİST hesabında oda bu listede yoksa sayılmaz; Arrival tarihi varsa o tarihten öncesi eski oda verisi kabul edilir.</small>
+        <div id="currentRoomsStatus" class="current-rooms-status">Güncel oda listesi yüklenmedi.</div>
+      </div>
+
+      <div id="greenPanel" class="green-panel" hidden>
+        <label for="greenRoomsInput">Yeşil odalar</label>
+        <input id="greenRoomsInput" type="text" placeholder="Örn: 1008, 1120, 2207" disabled />
+        <small>Buraya yazılan oda numaraları PDF'de yeşile boyanır.</small>
+      </div>
+
+      <section id="assignmentPanel" class="assignment-panel compact" hidden>
+        <div id="chiefControls" class="chief-grid"></div>
+        <div id="assignmentStatus" class="assignment-status"></div>
+      </section>
+
+      <div class="actions">
+        <button id="printBtn" type="button" disabled>PDF Al / Yazdır</button>
+        <button id="excelBtn" type="button" disabled class="excel-action">Excel İndir</button>
+        <button id="officeBtn" type="button" disabled class="office-action">Ofis</button>
+        <button id="officeExcelBtn" type="button" disabled class="office-action">Ofis Excel</button>
+        <button id="clearBtn" type="button" disabled class="ghost">Temizle</button>
+      </div>
+
+      <div id="status" class="status">Henüz dosya yüklenmedi.</div>
+    </section>
+
+    <section id="summary" class="summary no-print" hidden></section>
+
+    <section id="preview" class="preview empty">
+      <div class="empty-state no-print">
+        <h2>PDF önizlemesi burada görünecek</h2>
+        <p>Liste türünü seçip Excel dosyasını yükle.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
