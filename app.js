@@ -1,4 +1,4 @@
-/* global XLSX */
+/* global XLSX, pdfjsLib */
 const startMenu = document.getElementById('startMenu');
 const appShell = document.getElementById('appShell');
 const startDeparturesBtn = document.getElementById('startDeparturesBtn');
@@ -22,6 +22,7 @@ const appTitle = document.getElementById('appTitle');
 const departuresModeBtn = document.getElementById('departuresModeBtn');
 const arrivalsModeBtn = document.getElementById('arrivalsModeBtn');
 const dndModeBtn = document.getElementById('dndModeBtn');
+const vacantModeBtn = document.getElementById('vacantModeBtn');
 const greenPanel = document.getElementById('greenPanel');
 const greenRoomsInput = document.getElementById('greenRoomsInput');
 const currentRoomsPanel = document.getElementById('currentRoomsPanel');
@@ -32,8 +33,14 @@ const uploadTitle = document.getElementById('uploadTitle');
 const MODE_DEPARTURES = 'departures';
 const MODE_ARRIVALS = 'arrivals';
 const MODE_DND = 'dnd';
+const MODE_VACANT = 'vacant';
 const ETD_HIGHLIGHT = '17:00';
 const ROWS_PER_PAGE = 33;
+const PRINT_PAGE_LIMITS = {
+  departures: { hardMax: 29, unitBudget: 31 },
+  arrivals: { hardMax: 24, unitBudget: 26 },
+  vacant: { hardMax: 28, unitBudget: 30 },
+};
 const CHIEF_GROUPS = ['1000ler', '2000ler', '3000ler', '4000ler', '5000ler'];
 const LEAVE_ELIGIBLE_GROUPS = CHIEF_GROUPS.filter(group => group !== '5000ler');
 
@@ -73,11 +80,12 @@ const REQUIRED_KEYS = {
 function modeLabel(mode = currentMode) {
   if (mode === MODE_ARRIVALS) return 'Arrivals';
   if (mode === MODE_DND) return 'DND / TİST';
+  if (mode === MODE_VACANT) return 'Vacant Rooms';
   return 'Departures';
 }
 
 function requiredFields(mode = currentMode) {
-  return REQUIRED_KEYS[mode].map(key => FIELD_DEFS.find(field => field.key === key));
+  return (REQUIRED_KEYS[mode] || []).map(key => FIELD_DEFS.find(field => field.key === key));
 }
 
 function normalizeHeader(value) {
@@ -124,13 +132,26 @@ function excelSerialToDate(serial, date1904 = false) {
   return new Date(utcValue * 1000);
 }
 
+function excelSerialToLocalDate(serial, date1904 = false) {
+  const utcDate = excelSerialToDate(serial, date1904);
+  if (!(utcDate instanceof Date) || isNaN(utcDate)) return null;
+  // Excel tarihleri gün bazlıdır. UTC 00:00 olarak gelen değer bazı tarayıcı/saat dilimlerinde
+  // bir önceki gün gibi görünebilir. Bu yüzden UTC gün/ay/yıl parçalarıyla yerel tarih oluşturuyoruz.
+  return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate(), 12, 0, 0, 0);
+}
+
+function formatDateParts(day, month, year) {
+  const y = String(year).padStart(4, '0');
+  return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${y}`;
+}
+
 function formatDateValue(value) {
   if (value instanceof Date && !isNaN(value)) {
-    return value.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+    return formatDateParts(value.getDate(), value.getMonth() + 1, value.getFullYear());
   }
   if (typeof value === 'number' && value > 20000 && value < 80000) {
-    const d = excelSerialToDate(value);
-    return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+    const d = excelSerialToLocalDate(value);
+    return d ? formatDateParts(d.getDate(), d.getMonth() + 1, d.getFullYear()) : '';
   }
   const text = clean(value);
   const iso = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
@@ -164,6 +185,24 @@ function formatTimeValue(value) {
     return hasNextDay ? `${time}Next Day` : time;
   }
   return text;
+}
+
+function stripNextDayFromTime(text) {
+  return clean(text).replace(/\s*next\s*day\s*/ig, '').trim();
+}
+
+function hasNextDayMarker(value, displayValue = '') {
+  return /next\s*day/i.test(clean(value)) || /next\s*day/i.test(clean(displayValue));
+}
+
+function formatEtaValue(value, displayValue = '', mode = currentMode) {
+  const formatted = formatTimeValue(value);
+  if (mode === MODE_ARRIVALS) {
+    const cleaned = stripNextDayFromTime(formatted);
+    if (cleaned) return cleaned;
+    return stripNextDayFromTime(displayValue);
+  }
+  return formatted;
 }
 
 function looksLikeDateString(text) {
@@ -348,34 +387,60 @@ function sameDayKey(date) {
 
 function formatShortDate(date) {
   if (!(date instanceof Date) || isNaN(date)) return '';
-  return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+  return formatDateParts(date.getDate(), date.getMonth() + 1, date.getFullYear());
 }
 
-function parseMatrixDate(value, displayValue = '') {
-  if (value instanceof Date && !isNaN(value)) return startOfDay(value);
-  if (typeof value === 'number' && value > 20000 && value < 80000) return startOfDay(excelSerialToDate(value));
+function dateFromParts(day, month, year) {
+  const y = Number(String(year).length === 2 ? `20${year}` : year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900 || y > 2100) return null;
+  const date = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return isNaN(date) ? null : startOfDay(date);
+}
 
-  const text = clean(value || displayValue);
-  if (!text) return null;
+function parseDateText(text) {
+  const value = clean(text);
+  if (!value) return null;
 
-  const match = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
-  if (match) {
-    const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]);
-    const month = Number(match[2]);
-    const day = Number(match[1]);
-    const date = new Date(year, month - 1, day);
-    return isNaN(date) ? null : startOfDay(date);
-  }
+  const iso = value.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return dateFromParts(iso[3], iso[2], iso[1]);
+
+  const match = value.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+  if (match) return dateFromParts(match[1], match[2], match[3]);
 
   // Oda numarası gibi düz sayıları tarih sanmasın.
   // JavaScript new Date('1001') değerini tarih kabul edebiliyor; bu DND tablo algısını bozuyordu.
-  if (/^\d+$/.test(text)) return null;
+  if (/^\d+$/.test(value)) return null;
 
-  const parsed = new Date(text);
+  const parsed = new Date(value);
   if (isNaN(parsed)) return null;
   const year = parsed.getFullYear();
   if (year < 1900 || year > 2100) return null;
   return startOfDay(parsed);
+}
+
+function parseMatrixDate(value, displayValue = '') {
+  // DND / TİST formlarında tarih hücreleri bazen Excel'de mm-dd-yy olarak görünür.
+  // Görünen metni önce okursak 07-03-26 değerini 07.03.2026 sanabilir.
+  // Bu yüzden gerçek Excel tarih değerini (Date / seri numarası) önce kullanıyoruz.
+  if (value instanceof Date && !isNaN(value)) {
+    return startOfDay(value);
+  }
+
+  if (typeof value === 'number' && value > 20000 && value < 80000) {
+    const d = excelSerialToLocalDate(value);
+    return d ? startOfDay(d) : null;
+  }
+
+  const valueTextDate = parseDateText(value);
+  if (valueTextDate) return valueTextDate;
+
+  const displayDate = parseDateText(displayValue);
+  if (displayDate) return displayDate;
+
+  return null;
 }
 
 function detectDndStatus(value) {
@@ -407,6 +472,21 @@ function dateColumnHasDndMark(colIndex, rows, displayRows, startRowIndex = 0) {
     if (realDndStatusForCell(r, colIndex, rows, displayRows)) return true;
   }
   return false;
+}
+
+function findRowDndStartIndex(rowIndex, activeDateCols, rows, displayRows, arrivalLimit = null) {
+  if (!activeDateCols.length) return -1;
+  const firstDate = activeDateCols[0].date;
+  if (arrivalLimit && firstDate < arrivalLimit) return -1;
+
+  // Eski ana kural korunur: DND / TİST dünden geriye doğru kontrol edilir.
+  // Burada sadece başlangıç/bitiş tarihinin yanlış görünmesine sebep olan tarih okuma kısmı düzeltilmiştir.
+  return 0;
+}
+
+function canWednesdayBridgeDnd(rowIndex, activeDateCols, index, rows, displayRows, streak) {
+  const current = activeDateCols[index];
+  return Boolean(current && isWednesday(current.date));
 }
 
 function processDndWorkbook(workbook) {
@@ -460,29 +540,33 @@ function processDndWorkbook(workbook) {
   const sortedDateCols = dateCols.slice().sort((a, b) => b.date - a.date);
   const pastDateCols = sortedDateCols.filter(item => item.date <= yesterday);
 
-  // DND/TİST dosyasında ileriki veya boş tarih kolonları varsa sonuç kaybolmasın.
-  // Önce dünkü kolonu kullanır; dünkü kolonda hiç D/T yoksa, dünden geriye doğru en son işaretli günü başlangıç kabul eder.
-  const yesterdayKey = sameDayKey(yesterday);
-  const yesterdayCol = pastDateCols.find(item => sameDayKey(item.date) === yesterdayKey);
-  const markedPastDateCols = pastDateCols.filter(item => (
-    isWednesday(item.date) || dateColumnHasDndMark(item.colIndex, rows, displayRows, dateRowIndex + 1)
-  ));
+  // Ana kural: dünden geriye doğru bakılır.
+  // Ancak formda ilerideki boş tarih kolonları varsa veya bilgisayar tarihi formun tarih aralığına denk gelmiyorsa
+  // en son gerçekten D/T işaretli günü başlangıç kabul ediyoruz. Böylece boş gelecek kolon yüzünden sonuçlar kaybolmaz.
+  const markedDateCols = sortedDateCols.filter(item => dateColumnHasDndMark(item.colIndex, rows, displayRows, dateRowIndex + 1));
+  const latestMarkedDate = markedDateCols[0]?.date || null;
+  const latestPastCol = pastDateCols[0] || null;
+  const latestPastHasMark = latestPastCol ? dateColumnHasDndMark(latestPastCol.colIndex, rows, displayRows, dateRowIndex + 1) : false;
 
-  const latestMarkedPastCol = markedPastDateCols[0] || null;
-  const anchorDateCol = (
-    yesterdayCol && (isWednesday(yesterdayCol.date) || dateColumnHasDndMark(yesterdayCol.colIndex, rows, displayRows, dateRowIndex + 1))
-      ? yesterdayCol
-      : latestMarkedPastCol || pastDateCols[0] || sortedDateCols[0]
-  );
+  let controlStartDate = null;
+  if (latestPastCol && latestPastHasMark) {
+    controlStartDate = latestPastCol.date;
+  } else if (latestMarkedDate && (!latestPastCol || latestMarkedDate <= latestPastCol.date)) {
+    controlStartDate = latestMarkedDate;
+  } else if (latestPastCol) {
+    controlStartDate = latestPastCol.date;
+  } else {
+    controlStartDate = sortedDateCols[0]?.date || null;
+  }
 
-  const activeDateCols = sortedDateCols.filter(item => item.date <= anchorDateCol.date);
-  const latestControlDate = activeDateCols[0].date;
-  const oldestControlDate = activeDateCols[activeDateCols.length - 1].date;
-  const usingAdjustedStart = sameDayKey(latestControlDate) !== yesterdayKey;
-  const adjustedNote = usingAdjustedStart ? ' / başlangıç: en son işaretli gün' : '';
-  dndDateWindowText = activeDateCols.length
-    ? `${formatShortDate(latestControlDate)} tarihinden geriye doğru${adjustedNote} / Çarşamba tüm odalar işaretli sayılır`
-    : `${formatShortDate(latestControlDate)} - ${formatShortDate(oldestControlDate)} / Çarşamba tüm odalar işaretli sayılır`;
+  const controlDateCols = controlStartDate
+    ? sortedDateCols.filter(item => item.date <= controlStartDate)
+    : [];
+  const latestControlDate = controlDateCols[0]?.date;
+  const oldestControlDate = controlDateCols[controlDateCols.length - 1]?.date;
+  dndDateWindowText = controlDateCols.length
+    ? `${formatShortDate(latestControlDate)} tarihinden geriye doğru / Çarşamba tüm odalar işaretli sayılır`
+    : 'Tarih bulunamadı / Çarşamba tüm odalar işaretli sayılır';
 
   const results = [];
   const hasCurrentRoomFilter = currentRoomFilter.size > 0;
@@ -505,14 +589,19 @@ function processDndWorkbook(workbook) {
 
     const arrivalLimit = currentInfo?.arrivalDate ? startOfDay(currentInfo.arrivalDate) : null;
     const streak = [];
+    const startIndex = findRowDndStartIndex(r, controlDateCols, rows, displayRows, arrivalLimit);
 
-    for (const { colIndex, date } of activeDateCols) {
+    if (startIndex === -1) continue;
+
+    for (let c = startIndex; c < controlDateCols.length; c += 1) {
+      const { colIndex, date } = controlDateCols[c];
       if (arrivalLimit && date < arrivalLimit) {
         dndFilterStats.stoppedBeforeArrival += 1;
         break;
       }
 
-      const status = dndStatusForCell(r, colIndex, date, rows, displayRows);
+      const realStatus = realDndStatusForCell(r, colIndex, rows, displayRows);
+      const status = realStatus || (canWednesdayBridgeDnd(r, controlDateCols, c, rows, displayRows, streak) ? 'ÇARŞAMBA' : '');
       if (!status) break;
 
       if (streak.length) {
@@ -521,16 +610,19 @@ function processDndWorkbook(workbook) {
         if (diffDays !== 1) break;
       }
 
-      streak.push({ date, status });
+      streak.push({ date, status, real: Boolean(realStatus) });
     }
 
     if (streak.length >= 2) {
       const sortedAsc = streak.slice().sort((a, b) => a.date - b.date);
+      const realSortedAsc = sortedAsc.filter(item => item.real || item.status !== 'ÇARŞAMBA');
+      const startItem = realSortedAsc[0] || sortedAsc[0];
+      const endItem = realSortedAsc[realSortedAsc.length - 1] || sortedAsc[sortedAsc.length - 1];
       const daysWithoutWednesday = streak.filter(item => item.status !== 'ÇARŞAMBA').length;
       results.push({
         room: rawRoom,
-        start: sortedAsc[0].date,
-        end: sortedAsc[sortedAsc.length - 1].date,
+        start: startItem.date,
+        end: endItem.date,
         daysWithoutWednesday,
         days: streak.length,
         details: sortedAsc.map(item => `${formatShortDate(item.date)} ${item.status}`).join(' / '),
@@ -566,8 +658,6 @@ function renderDndPreview(results) {
     <tr>
       <td class="idx">${index + 1}</td>
       <td class="room">${escapeHtml(item.room)}</td>
-      <td>${escapeHtml(formatShortDate(item.start))}</td>
-      <td>${escapeHtml(formatShortDate(item.end))}</td>
       <td>${escapeHtml(item.daysWithoutWednesday ?? item.days)}</td>
       <td>${escapeHtml(item.days)}</td>
       <td class="dnd-detail">${escapeHtml(item.details)}</td>
@@ -579,12 +669,12 @@ function renderDndPreview(results) {
     <div class="table-wrap">
       <table class="departure-table dnd-table">
         <colgroup>
-          <col class="idx"><col class="room"><col class="date"><col class="date"><col class="small"><col class="small"><col class="notes">
+          <col class="idx"><col class="room"><col class="small"><col class="small"><col class="notes">
         </colgroup>
         <thead>
-          <tr><th></th><th>Room</th><th>Başlangıç</th><th>Bitiş</th><th>Çarşamba Hariç Gün</th><th>Gün</th><th>Detay</th></tr>
+          <tr><th></th><th>Room</th><th>Çarşamba Hariç Gün</th><th>Gün</th><th>Detay</th></tr>
         </thead>
-        <tbody>${rowsHtml || '<tr><td colspan="7">Arka arkaya DND / TİST oda bulunamadı.</td></tr>'}</tbody>
+        <tbody>${rowsHtml || '<tr><td colspan="5">Arka arkaya DND / TİST oda bulunamadı.</td></tr>'}</tbody>
       </table>
     </div>`;
 
@@ -655,6 +745,7 @@ function fileNameModeHint(fileName = '', workbook = null) {
   const names = [fileName, ...(workbook?.SheetNames || [])].join(' ');
   const text = canonical(names);
 
+  if (/\b(vacant|hkvacroom|vac|bos|boş)\b/.test(text)) return { mode: MODE_VACANT, confidence: 0.98, reason: 'dosya adında Vacant var' };
   if (/\b(dnd|tist|temizlik)\b/.test(text)) return { mode: MODE_DND, confidence: 0.98, reason: 'dosya adında DND / TİST var' };
   if (/\b(arrival|arrivals|arrivas|giris|gelis)\b/.test(text)) return { mode: MODE_ARRIVALS, confidence: 0.98, reason: 'dosya adında Arrivals var' };
   if (/\b(departure|departures|departus|depertur|cikis|ayrilis)\b/.test(text)) return { mode: MODE_DEPARTURES, confidence: 0.98, reason: 'dosya adında Departures var' };
@@ -925,11 +1016,201 @@ function normalizeAgent(agent) {
   return value.replace(/\s*Limited$/i, ' Limited');
 }
 
-function rowToRecord(row, map, displayRow = []) {
+
+function ensurePdfLibrary() {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF okuyucu yüklenemedi. İnternet bağlantısını kontrol edip sayfayı yenile.');
+  }
+  if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+}
+
+function vacantLineClusters(items, yTolerance = 3) {
+  const lines = [];
+  items
+    .filter(item => clean(item.text))
+    .sort((a, b) => (b.y - a.y) || (a.x - b.x))
+    .forEach(item => {
+      let line = lines.find(candidate => Math.abs(candidate.y - item.y) <= yTolerance);
+      if (!line) {
+        line = { y: item.y, items: [] };
+        lines.push(line);
+      }
+      line.items.push(item);
+      line.y = (line.y * (line.items.length - 1) + item.y) / line.items.length;
+    });
+
+  return lines
+    .sort((a, b) => b.y - a.y)
+    .map(line => line.items
+      .sort((a, b) => a.x - b.x)
+      .map(item => clean(item.text))
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+([,.;:])/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean);
+}
+
+function vacantColumnText(rowItems, minX, maxX, { separator = ' / ' } = {}) {
+  const lines = vacantLineClusters(rowItems.filter(item => item.x >= minX && item.x < maxX));
+  return lines.join(separator).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeVacantStatus(value) {
+  return clean(value).replace(/\bDue\s+Out\b/gi, 'Due Out').replace(/\bDue\s+In\b/gi, 'Due In').replace(/\bChecked\s+In\b/gi, 'Checked In');
+}
+
+function isVacantPdfArtifactText(value) {
+  const text = clean(value);
+  if (!text) return true;
+  return /^page\s+\d+\s+of\s+\d+$/i.test(text)
+    || /^hkvacroom$/i.test(text)
+    || /^roomclassall$/i.test(text);
+}
+
+function stripVacantPdfArtifacts(value, { roomClass = false } = {}) {
+  let text = clean(value);
+  if (!text) return '';
+
+  // HK Vacant PDF'lerinde bazı sayfalarda footer/kaynak yazıları tablo satırıyla
+  // aynı hizaya düşebiliyor. Bunlar tarih/Next Blocked/Class hücrelerine karışmasın.
+  text = text
+    .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, '')
+    .replace(/\bhkvacroom\b/gi, '');
+
+  if (roomClass) {
+    text = text.replace(/[_\s-]*RoomClassAll\b/gi, '');
+  }
+
+  return text
+    .replace(/\s*\/\s*(?=\/|$)/g, '')
+    .replace(/(^|\s)\/\s*$/g, '')
+    .replace(/^\s*\/\s*/g, '')
+    .replace(/\s*\/\s*/g, ' / ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function parseVacantPageItems(textContent) {
+  const pageItems = (textContent.items || [])
+    .map(item => {
+      const transform = item.transform || [];
+      return {
+        text: clean(item.str),
+        x: Number(transform[4] || 0),
+        y: Number(transform[5] || 0),
+        width: Number(item.width || transform[0] || 0),
+      };
+    })
+    .filter(item => item.text)
+    .filter(item => !isVacantPdfArtifactText(item.text));
+
+  const roomAnchors = pageItems
+    .filter(item => item.x >= 25 && item.x <= 60 && /^\d{3,5}$/.test(item.text.replace(/\.0$/, '')))
+    .map(item => ({ ...item, room: normalizeRoomId(item.text), rowItems: [] }))
+    .filter(item => item.room);
+
+  if (!roomAnchors.length) return [];
+
+  const tableItems = pageItems.filter(item => item.x >= 25 && item.x <= 560);
+  tableItems.forEach(item => {
+    let best = null;
+    let bestDistance = Infinity;
+    roomAnchors.forEach(anchor => {
+      const distance = Math.abs(anchor.y - item.y);
+      if (distance < bestDistance) {
+        best = anchor;
+        bestDistance = distance;
+      }
+    });
+    // pdf.js koordinatlarında Y aşağı indikçe küçülür.
+    // Başlık satırını ilk odaya karıştırmamak için sadece oda satırıyla aynı hizada
+    // veya onun altında kalan devam satırlarını alıyoruz.
+    const verticalDelta = best ? best.y - item.y : Infinity;
+    if (best && verticalDelta >= -3 && verticalDelta <= 22) best.rowItems.push(item);
+  });
+
+  return roomAnchors.map(anchor => {
+    const rowItems = anchor.rowItems;
+    const roomClass = stripVacantPdfArtifacts(vacantColumnText(rowItems, 58, 90, { separator: ' ' }), { roomClass: true });
+    const occupancy = stripVacantPdfArtifacts(vacantColumnText(rowItems, 90, 116, { separator: ' / ' }));
+    const foStatus = stripVacantPdfArtifacts(vacantColumnText(rowItems, 116, 140, { separator: ' / ' }));
+    const nightsVacant = stripVacantPdfArtifacts(vacantColumnText(rowItems, 140, 177, { separator: ' / ' }));
+    const name = stripVacantPdfArtifacts(vacantColumnText(rowItems, 177, 278, { separator: ' / ' }));
+    const arrival = stripVacantPdfArtifacts(vacantColumnText(rowItems, 278, 318, { separator: ' / ' }));
+    const departure = stripVacantPdfArtifacts(vacantColumnText(rowItems, 318, 358, { separator: ' / ' }));
+    const reservationStatus = normalizeVacantStatus(stripVacantPdfArtifacts(vacantColumnText(rowItems, 358, 420, { separator: ' / ' })));
+    const adults = stripVacantPdfArtifacts(vacantColumnText(rowItems, 420, 448, { separator: ' / ' }));
+    const children = stripVacantPdfArtifacts(vacantColumnText(rowItems, 448, 475, { separator: ' / ' }));
+    const discrepantStatus = stripVacantPdfArtifacts(vacantColumnText(rowItems, 475, 515, { separator: ' / ' }));
+    const nextBlocked = stripVacantPdfArtifacts(vacantColumnText(rowItems, 515, 560, { separator: ' / ' }));
+
+    return {
+      room: anchor.room,
+      roomClass: clean(roomClass).replace(/\s+/g, ''),
+      roomType: occupancy,
+      foStatus,
+      nightsVacant,
+      name,
+      arrival,
+      departure,
+      reservationStatus,
+      adults,
+      children,
+      discrepantStatus,
+      nextBlocked,
+      notes: '',
+    };
+  }).filter(record => record.room);
+}
+
+async function readVacantPdfFile(file) {
+  if (!/\.pdf$/i.test(file.name || '')) {
+    throw new Error('Vacant Rooms için PDF dosyası yükle.');
+  }
+  ensurePdfLibrary();
+  const buffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: buffer });
+  const pdf = await loadingTask.promise;
+  const records = [];
+
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const textContent = await page.getTextContent();
+    records.push(...parseVacantPageItems(textContent));
+  }
+
+  if (!records.length) throw new Error('Vacant Rooms PDF içinde oda satırı bulunamadı.');
+  records.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
+  return { name: file.name, records, type: MODE_VACANT };
+}
+
+function mergeVacantRecordItems(items) {
+  const allRecords = [];
+  items.forEach(item => {
+    (item.records || []).forEach(record => allRecords.push(record));
+  });
+  if (!allRecords.length) throw new Error('Vacant Rooms PDF içinde oda satırı bulunamadı.');
+  allRecords.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
+  const groups = new Map();
+  allRecords.forEach(record => {
+    const groupName = roomGroup(record.room);
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName).push(record);
+  });
+  return new Map([...groups.entries()].sort((a, b) => groupSortValue(a[0]) - groupSortValue(b[0])));
+}
+
+function rowToRecord(row, map, displayRow = [], mode = currentMode) {
   const children = clean(row[map.children]);
+  const etaNextDay = mode === MODE_ARRIVALS && hasNextDayMarker(row[map.eta], displayRow[map.eta]);
   return {
     room: clean(row[map.room]),
-    eta: formatTimeValue(row[map.eta]),
+    eta: formatEtaValue(row[map.eta], displayRow[map.eta], mode),
+    etaNextDay,
     arrival: formatDateValue(row[map.arrival]),
     adults: clean(row[map.adults]),
     children,
@@ -989,7 +1270,7 @@ function processWorkbook(workbook, mode = currentMode) {
   }
 
   const records = rows.slice(headerIndex + 1)
-    .map((row, index) => rowToRecord(row, headerMap, displayRows[headerIndex + 1 + index] || []))
+    .map((row, index) => rowToRecord(row, headerMap, displayRows[headerIndex + 1 + index] || [], mode))
     .filter(record => record.room && /^\d+/.test(record.room));
 
   if (!records.length) throw new Error('Oda numarası olan satır bulunamadı.');
@@ -1010,6 +1291,76 @@ function chunkArray(items, size) {
   const chunks = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
   return chunks;
+}
+
+function printLineCount(value, charsPerLine) {
+  const text = clean(value);
+  if (!text) return 1;
+  return Math.max(1, Math.ceil(text.length / charsPerLine));
+}
+
+function estimatePrintUnits(record) {
+  if (currentMode === MODE_ARRIVALS) {
+    const maxLines = Math.max(
+      printLineCount(record.name, 12),
+      printLineCount(record.travelAgent, 9),
+      printLineCount(record.notes, 34),
+      printLineCount(record.childAges, 8)
+    );
+    return Math.min(4, Math.max(1, maxLines));
+  }
+
+  if (currentMode === MODE_DEPARTURES) {
+    const maxLines = Math.max(
+      printLineCount(record.travelAgent, 12),
+      printLineCount(record.notes, 38),
+      printLineCount(record.childAges, 9)
+    );
+    return Math.min(4, Math.max(1, maxLines));
+  }
+
+  if (currentMode === MODE_VACANT) {
+    const maxLines = Math.max(
+      printLineCount(record.name, 18),
+      printLineCount(record.reservationStatus, 12),
+      printLineCount(record.nextBlocked, 10)
+    );
+    return Math.min(4, Math.max(1, maxLines));
+  }
+
+  return 1;
+}
+
+function splitNumberedRecordsForPrint(numberedRecords) {
+  const limits = currentMode === MODE_ARRIVALS
+    ? PRINT_PAGE_LIMITS.arrivals
+    : currentMode === MODE_VACANT
+      ? PRINT_PAGE_LIMITS.vacant
+      : PRINT_PAGE_LIMITS.departures;
+
+  const pages = [];
+  let page = [];
+  let units = 0;
+
+  numberedRecords.forEach(item => {
+    const itemUnits = estimatePrintUnits(item.record);
+    const mustBreak = page.length > 0 && (
+      page.length >= limits.hardMax ||
+      units + itemUnits > limits.unitBudget
+    );
+
+    if (mustBreak) {
+      pages.push(page);
+      page = [];
+      units = 0;
+    }
+
+    page.push(item);
+    units += itemUnits;
+  });
+
+  if (page.length) pages.push(page);
+  return pages;
 }
 
 function getRecords(groupName) {
@@ -1127,6 +1478,7 @@ function buildPrintableGroups() {
 
 function renderPage(records, groupName) {
   const isArrivals = currentMode === MODE_ARRIVALS;
+  const isVacant = currentMode === MODE_VACANT;
   const page = document.createElement('article');
   page.className = 'sheet-page';
   page.dataset.group = groupName;
@@ -1135,11 +1487,30 @@ function renderPage(records, groupName) {
     const etdClass = currentMode === MODE_DEPARTURES && record.etd === ETD_HIGHLIGHT ? 'etd-highlight' : '';
     const roomClass = `room${isGreenRoom(record) ? ' room-green' : ''}`;
 
+    if (isVacant) {
+      return `<tr>
+        <td class="idx">${rowNumber}</td>
+        <td class="${roomClass}">${escapeHtml(record.room)}</td>
+        <td>${escapeHtml(record.roomClass)}</td>
+        <td>${escapeHtml(record.roomType)}</td>
+        <td>${escapeHtml(record.foStatus)}</td>
+        <td>${escapeHtml(record.nightsVacant)}</td>
+        <td class="name">${escapeHtml(record.name)}</td>
+        <td>${escapeHtml(record.arrival)}</td>
+        <td>${escapeHtml(record.departure)}</td>
+        <td class="status-cell">${escapeHtml(record.reservationStatus)}</td>
+        <td>${escapeHtml(record.adults)}</td>
+        <td>${escapeHtml(record.children)}</td>
+        <td>${escapeHtml(record.discrepantStatus)}</td>
+        <td>${escapeHtml(record.nextBlocked)}</td>
+      </tr>`;
+    }
+
     if (isArrivals) {
       return `<tr>
         <td class="idx">${rowNumber}</td>
         <td class="${roomClass}">${escapeHtml(record.room)}</td>
-        <td>${escapeHtml(record.eta)}</td>
+        <td class="${record.etaNextDay ? 'eta-next-day' : ''}">${escapeHtml(record.eta)}</td>
         <td>${escapeHtml(record.arrival)}</td>
         <td>${escapeHtml(record.adults)}</td>
         <td>${escapeHtml(record.children)}</td>
@@ -1167,16 +1538,37 @@ function renderPage(records, groupName) {
     </tr>`;
   }).join('');
 
-  const colgroup = isArrivals
+  const colgroup = isVacant
     ? `<colgroup>
+        <col class="idx"><col class="room"><col class="vac-class"><col class="vac-type"><col class="vac-fo"><col class="vac-nights"><col class="name"><col class="date"><col class="date"><col class="vac-status"><col class="small"><col class="small"><col class="vac-disc"><col class="date">
+      </colgroup>`
+    : isArrivals
+      ? `<colgroup>
         <col class="idx"><col class="room"><col class="time"><col class="date"><col class="small"><col class="small"><col class="age"><col class="date"><col class="time"><col class="name"><col class="agent"><col class="notes">
       </colgroup>`
-    : `<colgroup>
+      : `<colgroup>
         <col class="idx"><col class="room"><col class="time"><col class="date"><col class="small"><col class="small"><col class="age"><col class="date"><col class="time"><col class="agent"><col class="notes">
       </colgroup>`;
 
-  const header = isArrivals
+  const header = isVacant
     ? `<tr>
+        <th></th>
+        <th>Room</th>
+        <th>Class</th>
+        <th>Type</th>
+        <th>FO</th>
+        <th>Nights<br>Vac.</th>
+        <th>Name</th>
+        <th>Arr.</th>
+        <th>Dep.</th>
+        <th>Res.<br>Status</th>
+        <th>Ad.</th>
+        <th>Ch.</th>
+        <th>Disc.</th>
+        <th>Next<br>Blocked</th>
+      </tr>`
+    : isArrivals
+      ? `<tr>
         <th></th>
         <th>Room</th>
         <th>ETA</th>
@@ -1190,7 +1582,7 @@ function renderPage(records, groupName) {
         <th>Travel Agent</th>
         <th>NOTLAR</th>
       </tr>`
-    : `<tr>
+      : `<tr>
         <th></th>
         <th>Room</th>
         <th>ETA</th>
@@ -1204,14 +1596,14 @@ function renderPage(records, groupName) {
         <th>NOTLAR</th>
       </tr>`;
 
-  const columnCount = isArrivals ? 12 : 11;
+  const columnCount = isVacant ? 14 : (isArrivals ? 12 : 11);
   const officeHeader = groupName === 'Ofis'
     ? `<tr class="office-head-row"><th colspan="${columnCount}">OFİS</th></tr>`
     : '';
 
   page.innerHTML = `
     <div class="table-wrap">
-      <table class="departure-table ${isArrivals ? 'arrival-table' : 'departure-mode-table'}">
+      <table class="departure-table ${isVacant ? 'vacant-table' : (isArrivals ? 'arrival-table' : 'departure-mode-table')}">
         ${colgroup}
         <thead>${officeHeader}${header}</thead>
         <tbody>${rowsHtml}</tbody>
@@ -1226,6 +1618,7 @@ function renderPrintablePreview(groups) {
   preview.classList.remove('empty');
   preview.classList.toggle('preview-arrivals', currentMode === MODE_ARRIVALS);
   preview.classList.toggle('preview-departures', currentMode === MODE_DEPARTURES);
+  preview.classList.toggle('preview-vacant', currentMode === MODE_VACANT);
   preview.innerHTML = '';
 
   if (!groups.size) {
@@ -1245,7 +1638,10 @@ function renderPrintablePreview(groups) {
       return;
     }
 
-    const pages = chunkArray(numbered, ROWS_PER_PAGE);
+    // Uzun isim/acenteler satırı büyütebildiği için sabit 33 satır bazen
+    // yazdırmada sayfa sınırında satırın kaybolmasına neden oluyordu.
+    // Burada satır yüksekliği tahminiyle daha güvenli sayfalara bölüyoruz.
+    const pages = splitNumberedRecordsForPrint(numbered);
     pages.forEach(pageRecords => renderPage(pageRecords, groupName));
   });
 }
@@ -1393,8 +1789,18 @@ function resetAssignmentsForNewData() {
 }
 
 function processCurrentWorkbook(message = '') {
-  if (!lastWorkbook) return;
+  if (!lastWorkbook && !lastWorkbooks.length) return;
   try {
+    if (currentMode === MODE_VACANT) {
+      dndResults = [];
+      const itemsToProcess = lastWorkbooks.length ? lastWorkbooks : [];
+      originalGroups = mergeVacantRecordItems(itemsToProcess);
+      printableGroups = new Map(originalGroups);
+      resetAssignmentsForNewData();
+      updateOutput(message || `${lastFileName} ${modeLabel()} olarak işlendi.`);
+      return;
+    }
+
     if (currentMode === MODE_DND) {
       dndResults = processDndWorkbook(lastWorkbook);
       originalGroups = new Map([['DND / TİST', dndResults]]);
@@ -1429,7 +1835,10 @@ function processCurrentWorkbook(message = '') {
 
 async function readWorkbookFile(file) {
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  // DND / TİST formlarında tarih başlıklarını Date objesine çevirmek bazı
+  // tarayıcı/saat dilimlerinde 1 gün geri kaydırabiliyor. Bu yüzden DND'de
+  // Excel seri numarasını ham bırakıp parseMatrixDate içinde güvenli çeviriyoruz.
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: currentMode !== MODE_DND });
   return { name: file.name, workbook };
 }
 
@@ -1438,7 +1847,7 @@ async function handleFiles(files) {
   if (!fileList.length) return;
 
   if (currentMode === MODE_DND && fileList.length > 1) {
-    const warning = 'DND / TİST için tek Excel dosyası yükle. Arrivals ve Departures için birden fazla dosya seçebilirsin.';
+    const warning = 'DND / TİST için tek Excel dosyası yükle. Departures, Arrivals ve Vacant için birden fazla dosya seçebilirsin.';
     fileInput.value = '';
     setStatus(warning, 'error');
     window.alert(warning);
@@ -1446,17 +1855,20 @@ async function handleFiles(files) {
   }
 
   try {
-    setStatus(fileList.length === 1 ? `${fileList[0].name} okunuyor...` : `${fileList.length} Excel dosyası okunuyor...`);
+    const loadingLabel = currentMode === MODE_VACANT ? 'PDF' : 'Excel';
+    setStatus(fileList.length === 1 ? `${fileList[0].name} okunuyor...` : `${fileList.length} ${loadingLabel} dosyası okunuyor...`);
     const loaded = [];
 
     for (const file of fileList) {
-      const item = await readWorkbookFile(file);
-      const warning = wrongFileWarning(item.workbook, item.name, currentMode);
-      if (warning) {
-        fileInput.value = '';
-        setStatus(warning, 'error');
-        window.alert(warning);
-        return;
+      const item = currentMode === MODE_VACANT ? await readVacantPdfFile(file) : await readWorkbookFile(file);
+      if (currentMode !== MODE_VACANT) {
+        const warning = wrongFileWarning(item.workbook, item.name, currentMode);
+        if (warning) {
+          fileInput.value = '';
+          setStatus(warning, 'error');
+          window.alert(warning);
+          return;
+        }
       }
       loaded.push(item);
     }
@@ -1465,7 +1877,7 @@ async function handleFiles(files) {
     lastWorkbook = loaded[0]?.workbook || null;
     lastFileName = formatLoadedFileNames(loaded);
 
-    const fileText = loaded.length === 1 ? loaded[0].name : `${loaded.length} Excel dosyası`;
+    const fileText = loaded.length === 1 ? loaded[0].name : `${loaded.length} ${currentMode === MODE_VACANT ? 'PDF' : 'Excel'} dosyası`;
     processCurrentWorkbook(`${fileText} ${modeLabel()} olarak işlendi. PDF veya Excel alabilirsin.`);
   } catch (error) {
     console.error(error);
@@ -1524,7 +1936,12 @@ async function handleCurrentRoomFiles(files) {
 }
 
 function emptyPreviewHtml() {
-  return `<div class="empty-state no-print"><h2>PDF önizlemesi burada görünecek</h2><p>${currentMode === MODE_DND ? 'İlk satırı tarih, ilk sütunu oda numarası olan DND / TİST Excel dosyasını yükle.' : `${modeLabel()} Excel dosyasını yükle. Kolon isimleri örnekteki gibi olmalı.`}</p></div>`;
+  const helper = currentMode === MODE_DND
+    ? 'İlk satırı tarih, ilk sütunu oda numarası olan DND / TİST Excel dosyasını yükle.'
+    : currentMode === MODE_VACANT
+      ? 'Vacant Rooms PDF dosyasını yükle. Oda listesi 1000ler / 2000ler gibi parçalanır.'
+      : `${modeLabel()} Excel dosyasını yükle. Kolon isimleri örnekteki gibi olmalı.`;
+  return `<div class="empty-state no-print"><h2>PDF önizlemesi burada görünecek</h2><p>${helper}</p></div>`;
 }
 
 function clearAll() {
@@ -1563,16 +1980,22 @@ function updateModeUi() {
   departuresModeBtn.classList.toggle('active', currentMode === MODE_DEPARTURES);
   arrivalsModeBtn.classList.toggle('active', currentMode === MODE_ARRIVALS);
   dndModeBtn.classList.toggle('active', currentMode === MODE_DND);
+  vacantModeBtn?.classList.toggle('active', currentMode === MODE_VACANT);
   departuresModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DEPARTURES));
   arrivalsModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_ARRIVALS));
   dndModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DND));
+  vacantModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_VACANT));
   document.body.classList.toggle('mode-arrivals', currentMode === MODE_ARRIVALS);
   document.body.classList.toggle('mode-departures', currentMode === MODE_DEPARTURES);
   document.body.classList.toggle('mode-dnd', currentMode === MODE_DND);
+  document.body.classList.toggle('mode-vacant', currentMode === MODE_VACANT);
   greenPanel.hidden = currentMode !== MODE_ARRIVALS || !originalGroups.size;
   greenRoomsInput.disabled = currentMode !== MODE_ARRIVALS || !originalGroups.size;
-  if (fileInput) fileInput.multiple = currentMode !== MODE_DND;
-  if (uploadTitle) uploadTitle.textContent = currentMode === MODE_DND ? 'Excel Yükle' : 'Excel Yükle / Birden Fazla Seç';
+  if (fileInput) {
+    fileInput.multiple = currentMode !== MODE_DND;
+    fileInput.accept = currentMode === MODE_VACANT ? '.pdf' : '.xlsx,.xls,.csv';
+  }
+  if (uploadTitle) uploadTitle.textContent = currentMode === MODE_VACANT ? 'Vacant PDF Yükle' : (currentMode === MODE_DND ? 'Excel Yükle' : 'Excel Yükle / Birden Fazla Seç');
   updateCurrentRoomsPanel();
   if (currentMode === MODE_DND) {
     assignmentPanel.hidden = true;
@@ -1596,7 +2019,7 @@ function hasLoadedMainFile() {
 }
 
 function switchModeAndMaybeClear(mode) {
-  if (![MODE_DEPARTURES, MODE_ARRIVALS, MODE_DND].includes(mode)) return;
+  if (![MODE_DEPARTURES, MODE_ARRIVALS, MODE_DND, MODE_VACANT].includes(mode)) return;
   if (mode === currentMode) return;
 
   const previousMode = currentMode;
@@ -1607,10 +2030,10 @@ function switchModeAndMaybeClear(mode) {
   if (hadData) {
     clearAll();
     updateModeUi();
-    setStatus(`${modeLabel()} seçildi. Önceki ${modeLabel(previousMode)} dosyası otomatik temizlendi. Yeni Excel yükle.`, 'ok');
+    setStatus(`${modeLabel()} seçildi. Önceki ${modeLabel(previousMode)} dosyası otomatik temizlendi. Yeni ${mode === MODE_VACANT ? 'PDF' : 'Excel'} yükle.`, 'ok');
   } else {
     preview.innerHTML = emptyPreviewHtml();
-    setStatus(`${modeLabel()} seçildi. Excel dosyası yükle.`);
+    setStatus(`${modeLabel()} seçildi. ${mode === MODE_VACANT ? 'PDF' : 'Excel'} dosyası yükle.`);
   }
 }
 
@@ -1722,23 +2145,45 @@ function excelBorder(color = '555555') {
   };
 }
 
-function excelCellStyle({ fill = 'FFFFFF', bold = true, size = 10, align = 'center', valign = 'center', border = true } = {}) {
+function excelCellStyle({ fill = 'FFFFFF', bold = true, size = 10, align = 'center', valign = 'center', border = true, fontColor = '111111' } = {}) {
   return {
     fill: { patternType: 'solid', fgColor: { rgb: fill } },
-    font: { name: 'Arial', bold, sz: size, color: { rgb: '111111' } },
+    font: { name: 'Arial', bold, sz: size, color: { rgb: fontColor } },
     alignment: { horizontal: align, vertical: valign, wrapText: true },
     border: border ? excelBorder() : undefined,
   };
 }
 
-function excelHeaders(isArrivals) {
+function excelHeaders(isArrivals, isVacant = false) {
+  if (isVacant) {
+    return ['', 'Room', 'Class', 'Type', 'FO', 'Nights\nVac.', 'Name', 'Arr.', 'Dep.', 'Res.\nStatus', 'Ad.', 'Ch.', 'Disc.', 'Next\nBlocked'];
+  }
   if (isArrivals) {
     return ['', 'Room', 'ETA', 'Arrival', 'Adult\ns', 'Childr\nen', 'Child\nAges', 'Departure', 'ETD', 'Name', 'Travel\nAgent', 'NOTLAR'];
   }
   return ['', 'Room', 'ETA', 'Arrival', 'Adul\nts', 'Childr\nen', 'Child\nAges', 'Departure', 'ETD', 'Travel Agent', 'NOTLAR'];
 }
 
-function recordToExcelRow(record, rowNumber, isArrivals) {
+function recordToExcelRow(record, rowNumber, isArrivals, isVacant = false) {
+  if (isVacant) {
+    return [
+      rowNumber,
+      record.room,
+      record.roomClass,
+      record.roomType,
+      record.foStatus,
+      record.nightsVacant,
+      record.name,
+      record.arrival,
+      record.departure,
+      record.reservationStatus,
+      record.adults,
+      record.children,
+      record.discrepantStatus,
+      record.nextBlocked,
+    ];
+  }
+
   if (isArrivals) {
     return [
       rowNumber,
@@ -1771,27 +2216,32 @@ function recordToExcelRow(record, rowNumber, isArrivals) {
   ];
 }
 
-function excelColumnWidths(isArrivals) {
+function excelColumnWidths(isArrivals, isVacant = false) {
+  if (isVacant) {
+    return [4.5, 7, 8, 7, 6, 7.5, 22, 9, 9, 14, 5, 5, 7, 13].map(wch => ({ wch }));
+  }
   if (isArrivals) {
     return [4.5, 8, 9, 11, 6, 6.5, 8.5, 11, 8.5, 13, 12, 34].map(wch => ({ wch }));
   }
   return [4.5, 8, 8.5, 11, 6, 6.5, 8.5, 11, 8.5, 16, 34].map(wch => ({ wch }));
 }
 
-function styleExcelSheet(ws, records, groupName, isArrivals, startRow) {
-  const headers = excelHeaders(isArrivals);
+function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant = false) {
+  const headers = excelHeaders(isArrivals, isVacant);
   const columnCount = headers.length;
-  const headerFill = isArrivals ? '79A9D4' : 'C8755C';
+  const headerFill = isVacant ? '4B5563' : (isArrivals ? '79A9D4' : 'C8755C');
   const headerStyle = excelCellStyle({ fill: headerFill, bold: true, size: 10 });
   const bodyStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 10 });
   const notesStyle = excelCellStyle({ fill: 'FFFFFF', bold: false, size: 10, align: 'left' });
   const smallTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 9 });
   const compactArrivalTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
   const largerArrivalStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 12 });
+  const etaNextDayStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 12, fontColor: '5B5FC7' });
   const etdHighlightStyle = excelCellStyle({ fill: 'FFF176', bold: true, size: 10 });
   const roomGreenStyle = excelCellStyle({ fill: 'B8D8BD', bold: true, size: isArrivals ? 12 : 10 });
+  const vacantSmallStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
 
-  ws['!cols'] = excelColumnWidths(isArrivals);
+  ws['!cols'] = excelColumnWidths(isArrivals, isVacant);
   ws['!rows'] = [];
 
   if (groupName === 'Ofis') {
@@ -1818,7 +2268,7 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow) {
 
   records.forEach((record, index) => {
     const rowIndex = startRow + 1 + index;
-    ws['!rows'][rowIndex] = { hpt: isArrivals ? 32 : 26 };
+    ws['!rows'][rowIndex] = { hpt: isArrivals ? 32 : (isVacant ? 30 : 26) };
 
     for (let c = 0; c < columnCount; c += 1) {
       const ref = cellRef(rowIndex, c);
@@ -1827,25 +2277,31 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow) {
       cell.s = bodyStyle;
 
       // Child Ages kolonu Excel'de tarih formatına dönmesin; her zaman metin kalsın.
-      if (c === 6) {
+      if (!isVacant && c === 6) {
         cell.t = 's';
         cell.v = String(cell.v ?? '');
         cell.z = '@';
       }
 
+      if (isVacant && [2, 3, 4, 5, 9, 12, 13].includes(c)) {
+        cell.s = vacantSmallStyle;
+      }
       if (isArrivals && [1, 2, 4, 5, 6].includes(c)) {
         cell.s = largerArrivalStyle;
+      }
+      if (isArrivals && c === 2 && record.etaNextDay) {
+        cell.s = etaNextDayStyle;
       }
       if (isArrivals && [3, 7, 8, 9, 10].includes(c)) {
         cell.s = compactArrivalTextStyle;
       }
-      if (c === columnCount - 1) {
+      if (!isVacant && c === columnCount - 1) {
         cell.s = notesStyle;
       }
       if (c === 1 && isGreenRoom(record)) {
         cell.s = roomGreenStyle;
       }
-      if (!isArrivals && c === 8 && record.etd === ETD_HIGHLIGHT) {
+      if (!isArrivals && !isVacant && c === 8 && record.etd === ETD_HIGHLIGHT) {
         cell.s = etdHighlightStyle;
       }
 
@@ -1857,8 +2313,8 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow) {
   ws['!pageSetup'] = { paperSize: 9, orientation: 'portrait', fitToWidth: 1, fitToHeight: 0 };
 }
 
-function buildExcelSheet(records, groupName, isArrivals) {
-  const headers = excelHeaders(isArrivals);
+function buildExcelSheet(records, groupName, isArrivals, isVacant = false) {
+  const headers = excelHeaders(isArrivals, isVacant);
   const rows = [];
   let startRow = 0;
 
@@ -1868,10 +2324,10 @@ function buildExcelSheet(records, groupName, isArrivals) {
   }
 
   rows.push(headers);
-  records.forEach((record, index) => rows.push(recordToExcelRow(record, index + 1, isArrivals)));
+  records.forEach((record, index) => rows.push(recordToExcelRow(record, index + 1, isArrivals, isVacant)));
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  styleExcelSheet(ws, records, groupName, isArrivals, startRow);
+  styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant);
   return ws;
 }
 
@@ -1883,12 +2339,13 @@ function downloadExcelForGroups(groups, { filePrefix = modeLabel(), office = fal
 
   updateGreenRooms();
   const isArrivals = currentMode === MODE_ARRIVALS;
+  const isVacant = currentMode === MODE_VACANT;
   const wb = XLSX.utils.book_new();
   const usedNames = new Set();
 
   groups.forEach((records, groupName) => {
     const sheetName = safeSheetName(groupName === 'Ofis' ? 'OFİS' : groupName, usedNames);
-    const ws = buildExcelSheet(records, groupName, isArrivals);
+    const ws = buildExcelSheet(records, groupName, isArrivals, isVacant);
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   });
 
@@ -1902,7 +2359,7 @@ function downloadExcelForGroups(groups, { filePrefix = modeLabel(), office = fal
 
 function exportCurrentExcel() {
   if (!originalGroups.size) {
-    setStatus('Önce Excel dosyası yükle.', 'error');
+    setStatus(currentMode === MODE_VACANT ? 'Önce Vacant PDF dosyası yükle.' : 'Önce Excel dosyası yükle.', 'error');
     return;
   }
 
@@ -1923,7 +2380,7 @@ function exportCurrentExcel() {
 
 function exportOfficeExcelDirect() {
   if (!originalGroups.size) {
-    setStatus('Önce Excel dosyası yükle.', 'error');
+    setStatus(currentMode === MODE_VACANT ? 'Önce Vacant PDF dosyası yükle.' : 'Önce Excel dosyası yükle.', 'error');
     return;
   }
 
@@ -1938,16 +2395,14 @@ function downloadDndExcel() {
     return;
   }
 
-  const headers = ['', 'Room', 'Başlangıç', 'Bitiş', 'Çarşamba Hariç Gün', 'Gün', 'Detay'];
+  const headers = ['', 'Room', 'Çarşamba Hariç Gün', 'Gün', 'Detay'];
   const rows = [
-    ['DND / TİST ARKA ARKAYA ODALAR', '', '', '', '', '', ''],
-    [`Kontrol: ${dndDateWindowText || 'Tüm tarihler'}`, '', '', '', '', '', ''],
+    ['DND / TİST ARKA ARKAYA ODALAR', '', '', '', ''],
+    [`Kontrol: ${dndDateWindowText || 'Tüm tarihler'}`, '', '', '', ''],
     headers,
     ...dndResults.map((item, index) => [
       index + 1,
       item.room,
-      formatShortDate(item.start),
-      formatShortDate(item.end),
       item.daysWithoutWednesday ?? item.days,
       item.days,
       item.details,
@@ -1955,10 +2410,10 @@ function downloadDndExcel() {
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [4.5, 9, 13, 13, 13, 7, 46].map(wch => ({ wch }));
+  ws['!cols'] = [4.5, 9, 16, 7, 60].map(wch => ({ wch }));
   ws['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
   ];
   ws['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 24 }];
 
@@ -2028,7 +2483,7 @@ function printCleanPdf(options = {}) {
 
 function printOfficeDirect() {
   if (!originalGroups.size) {
-    setStatus('Önce Excel dosyası yükle.', 'error');
+    setStatus(currentMode === MODE_VACANT ? 'Önce Vacant PDF dosyası yükle.' : 'Önce Excel dosyası yükle.', 'error');
     return;
   }
 
@@ -2060,6 +2515,7 @@ backMenuBtn?.addEventListener('click', showStartMenu);
 departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
 dndModeBtn.addEventListener('click', () => setMode(MODE_DND));
+vacantModeBtn?.addEventListener('click', () => setMode(MODE_VACANT));
 officeBtn.addEventListener('click', printOfficeDirect);
 officeExcelBtn.addEventListener('click', exportOfficeExcelDirect);
 excelBtn.addEventListener('click', exportCurrentExcel);

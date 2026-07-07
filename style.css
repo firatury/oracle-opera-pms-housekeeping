@@ -441,10 +441,13 @@ table.departure-table {
   }
   .no-print { display: none !important; }
   .app-shell { width: 210mm; margin: 0; }
-  .preview { margin: 0; }
-  .table-wrap { overflow: visible; }
+  .preview { margin: 0; overflow: visible !important; }
+  .table-wrap { overflow: visible !important; }
   .departure-table thead { display: table-header-group; }
-  .departure-table tr { page-break-inside: avoid; break-inside: avoid; }
+  .departure-table tbody { page-break-inside: auto; break-inside: auto; }
+  .departure-table tr { page-break-inside: avoid; break-inside: avoid-page; }
+  .departure-table td,
+  .departure-table th { page-break-inside: avoid; break-inside: avoid-page; }
   .departure-table .office-head-row th {
     font-size: 17px;
     padding: 0 2px 4px 0;
@@ -453,9 +456,11 @@ table.departure-table {
     box-shadow: none;
     border-radius: 0;
     width: 210mm;
-    min-height: 297mm;
-    padding: 10mm 8mm;
+    min-height: auto;
+    box-sizing: border-box;
+    padding: 9mm 8mm;
     margin: 0;
+    overflow: visible !important;
     page-break-after: always;
     break-after: page;
   }
@@ -933,4 +938,73 @@ table.departure-table {
   .departure-table.dnd-table col.date { width: 82px; }
   .departure-table.dnd-table col.small { width: 42px; }
   .departure-table.dnd-table col.notes { width: 360px; }
+}
+
+
+
+/* Vacant Rooms PDF modu */
+.mode-vacant .mode-btn.active {
+  background: #4b5563;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(75,85,99,.18);
+}
+.departure-table.vacant-table {
+  font-size: 10px;
+}
+.departure-table.vacant-table thead th {
+  background: #4b5563;
+  color: #fff;
+}
+.departure-table.vacant-table th,
+.departure-table.vacant-table td {
+  padding: 3px 2px;
+  height: 25px;
+  line-height: 1.05;
+}
+.departure-table.vacant-table .name,
+.departure-table.vacant-table .status-cell {
+  font-size: 9px;
+  line-height: 1.05;
+}
+.departure-table.vacant-table col.idx { width: 27px; }
+.departure-table.vacant-table col.room { width: 44px; }
+.departure-table.vacant-table col.vac-class { width: 51px; }
+.departure-table.vacant-table col.vac-type { width: 38px; }
+.departure-table.vacant-table col.vac-fo { width: 32px; }
+.departure-table.vacant-table col.vac-nights { width: 38px; }
+.departure-table.vacant-table col.name { width: 140px; }
+.departure-table.vacant-table col.date { width: 64px; }
+.departure-table.vacant-table col.vac-status { width: 90px; }
+.departure-table.vacant-table col.small { width: 30px; }
+.departure-table.vacant-table col.vac-disc { width: 40px; }
+
+@media print {
+  table.departure-table.vacant-table { font-size: 8px; }
+  .departure-table.vacant-table th,
+  .departure-table.vacant-table td {
+    padding: 2px 1px;
+    height: 23px;
+    line-height: 1.02;
+  }
+  .departure-table.vacant-table .name,
+  .departure-table.vacant-table .status-cell {
+    font-size: 7px;
+  }
+  .departure-table.vacant-table col.idx { width: 24px; }
+  .departure-table.vacant-table col.room { width: 39px; }
+  .departure-table.vacant-table col.vac-class { width: 45px; }
+  .departure-table.vacant-table col.vac-type { width: 34px; }
+  .departure-table.vacant-table col.vac-fo { width: 28px; }
+  .departure-table.vacant-table col.vac-nights { width: 34px; }
+  .departure-table.vacant-table col.name { width: 115px; }
+  .departure-table.vacant-table col.date { width: 54px; }
+  .departure-table.vacant-table col.vac-status { width: 78px; }
+  .departure-table.vacant-table col.small { width: 26px; }
+  .departure-table.vacant-table col.vac-disc { width: 34px; }
+}
+
+/* Arrivals: Excel'de Next Day olan ETA saatlerini farklı renkte göster */
+.departure-table.arrival-table .eta-next-day {
+  color: #000000;
+
 }

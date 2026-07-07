@@ -6,6 +6,7 @@
   <title>Departures</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 </head>
 <body class="mode-departures">
   <main id="appShell" class="app-shell">
@@ -15,11 +16,12 @@
           <button id="departuresModeBtn" class="mode-btn active" type="button" aria-pressed="true">Departures</button>
           <button id="arrivalsModeBtn" class="mode-btn" type="button" aria-pressed="false">Arrivals</button>
           <button id="dndModeBtn" class="mode-btn" type="button" aria-pressed="false">DND / TİST</button>
+          <button id="vacantModeBtn" class="mode-btn" type="button" aria-pressed="false">Vacant</button>
         </div>
       </div>
       <h1 id="appTitle" class="app-title">Departures</h1>
       <div class="upload-card compact" id="dropZone">
-        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="Excel dosyası seç" />
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.pdf" multiple aria-label="Dosya seç" />
         <div class="upload-icon">⬆</div>
         <strong id="uploadTitle">Excel Yükle</strong>
       </div>
@@ -58,7 +60,7 @@
     <section id="preview" class="preview empty">
       <div class="empty-state no-print">
         <h2>PDF önizlemesi burada görünecek</h2>
-        <p>Liste türünü seçip Excel dosyasını yükle.</p>
+        <p>Liste türünü seçip Excel/PDF dosyasını yükle.</p>
       </div>
     </section>
   </main>
