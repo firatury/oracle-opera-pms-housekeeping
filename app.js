@@ -2223,7 +2223,6 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant 
   const smallTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 9 });
   const compactArrivalTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
   const largerArrivalStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 12 });
-  const etaNextDayStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 12, fontColor: '5B5FC7' });
   const etdHighlightStyle = excelCellStyle({ fill: 'FFF176', bold: true, size: 10 });
   const roomGreenStyle = excelCellStyle({ fill: 'B8D8BD', bold: true, size: isArrivals ? 12 : 10 });
   const vacantSmallStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
@@ -2275,9 +2274,6 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant 
       }
       if (isArrivals && [1, 2, 4, 5, 6].includes(c)) {
         cell.s = largerArrivalStyle;
-      }
-      if (isArrivals && c === 2 && record.etaNextDay) {
-        cell.s = etaNextDayStyle;
       }
       if (isArrivals && [3, 7, 8, 9, 10].includes(c)) {
         cell.s = compactArrivalTextStyle;

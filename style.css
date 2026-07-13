@@ -1109,8 +1109,3 @@ table.departure-table {
   .departure-table.vacant-table col.notes { width: 120px; }
 }
 
-/* Arrivals: Excel'de Next Day olan ETA saatlerini farklı renkte göster */
-.departure-table.arrival-table .eta-next-day {
-  color: #5b5fc7;
-  font-weight: 950;
-}
