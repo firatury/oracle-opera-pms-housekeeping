@@ -35,11 +35,10 @@ const MODE_ARRIVALS = 'arrivals';
 const MODE_DND = 'dnd';
 const MODE_VACANT = 'vacant';
 const ETD_HIGHLIGHT = '17:00';
-const ROWS_PER_PAGE = 33;
-const PRINT_PAGE_LIMITS = {
-  departures: { hardMax: 29, unitBudget: 31 },
-  arrivals: { hardMax: 24, unitBudget: 26 },
-  vacant: { hardMax: 28, unitBudget: 30 },
+const PRINT_ROWS_PER_PAGE = {
+  departures: 38,
+  arrivals: 38,
+  vacant: 38,
 };
 const CHIEF_GROUPS = ['1000ler', '2000ler', '3000ler', '4000ler', '5000ler'];
 const LEAVE_ELIGIBLE_GROUPS = CHIEF_GROUPS.filter(group => group !== '5000ler');
@@ -1063,37 +1062,6 @@ function normalizeVacantStatus(value) {
   return clean(value).replace(/\bDue\s+Out\b/gi, 'Due Out').replace(/\bDue\s+In\b/gi, 'Due In').replace(/\bChecked\s+In\b/gi, 'Checked In');
 }
 
-function isVacantPdfArtifactText(value) {
-  const text = clean(value);
-  if (!text) return true;
-  return /^page\s+\d+\s+of\s+\d+$/i.test(text)
-    || /^hkvacroom$/i.test(text)
-    || /^roomclassall$/i.test(text);
-}
-
-function stripVacantPdfArtifacts(value, { roomClass = false } = {}) {
-  let text = clean(value);
-  if (!text) return '';
-
-  // HK Vacant PDF'lerinde bazı sayfalarda footer/kaynak yazıları tablo satırıyla
-  // aynı hizaya düşebiliyor. Bunlar tarih/Next Blocked/Class hücrelerine karışmasın.
-  text = text
-    .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, '')
-    .replace(/\bhkvacroom\b/gi, '');
-
-  if (roomClass) {
-    text = text.replace(/[_\s-]*RoomClassAll\b/gi, '');
-  }
-
-  return text
-    .replace(/\s*\/\s*(?=\/|$)/g, '')
-    .replace(/(^|\s)\/\s*$/g, '')
-    .replace(/^\s*\/\s*/g, '')
-    .replace(/\s*\/\s*/g, ' / ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
 function parseVacantPageItems(textContent) {
   const pageItems = (textContent.items || [])
     .map(item => {
@@ -1105,8 +1073,7 @@ function parseVacantPageItems(textContent) {
         width: Number(item.width || transform[0] || 0),
       };
     })
-    .filter(item => item.text)
-    .filter(item => !isVacantPdfArtifactText(item.text));
+    .filter(item => item.text);
 
   const roomAnchors = pageItems
     .filter(item => item.x >= 25 && item.x <= 60 && /^\d{3,5}$/.test(item.text.replace(/\.0$/, '')))
@@ -1135,18 +1102,18 @@ function parseVacantPageItems(textContent) {
 
   return roomAnchors.map(anchor => {
     const rowItems = anchor.rowItems;
-    const roomClass = stripVacantPdfArtifacts(vacantColumnText(rowItems, 58, 90, { separator: ' ' }), { roomClass: true });
-    const occupancy = stripVacantPdfArtifacts(vacantColumnText(rowItems, 90, 116, { separator: ' / ' }));
-    const foStatus = stripVacantPdfArtifacts(vacantColumnText(rowItems, 116, 140, { separator: ' / ' }));
-    const nightsVacant = stripVacantPdfArtifacts(vacantColumnText(rowItems, 140, 177, { separator: ' / ' }));
-    const name = stripVacantPdfArtifacts(vacantColumnText(rowItems, 177, 278, { separator: ' / ' }));
-    const arrival = stripVacantPdfArtifacts(vacantColumnText(rowItems, 278, 318, { separator: ' / ' }));
-    const departure = stripVacantPdfArtifacts(vacantColumnText(rowItems, 318, 358, { separator: ' / ' }));
-    const reservationStatus = normalizeVacantStatus(stripVacantPdfArtifacts(vacantColumnText(rowItems, 358, 420, { separator: ' / ' })));
-    const adults = stripVacantPdfArtifacts(vacantColumnText(rowItems, 420, 448, { separator: ' / ' }));
-    const children = stripVacantPdfArtifacts(vacantColumnText(rowItems, 448, 475, { separator: ' / ' }));
-    const discrepantStatus = stripVacantPdfArtifacts(vacantColumnText(rowItems, 475, 515, { separator: ' / ' }));
-    const nextBlocked = stripVacantPdfArtifacts(vacantColumnText(rowItems, 515, 560, { separator: ' / ' }));
+    const roomClass = vacantColumnText(rowItems, 58, 90, { separator: ' ' });
+    const occupancy = vacantColumnText(rowItems, 90, 116, { separator: ' / ' });
+    const foStatus = vacantColumnText(rowItems, 116, 140, { separator: ' / ' });
+    const nightsVacant = vacantColumnText(rowItems, 140, 177, { separator: ' / ' });
+    const name = vacantColumnText(rowItems, 177, 278, { separator: ' / ' });
+    const arrival = vacantColumnText(rowItems, 278, 318, { separator: ' / ' });
+    const departure = vacantColumnText(rowItems, 318, 358, { separator: ' / ' });
+    const reservationStatus = normalizeVacantStatus(vacantColumnText(rowItems, 358, 420, { separator: ' / ' }));
+    const adults = vacantColumnText(rowItems, 420, 448, { separator: ' / ' });
+    const children = vacantColumnText(rowItems, 448, 475, { separator: ' / ' });
+    const discrepantStatus = vacantColumnText(rowItems, 475, 515, { separator: ' / ' });
+    const nextBlocked = vacantColumnText(rowItems, 515, 560, { separator: ' / ' });
 
     return {
       room: anchor.room,
@@ -1323,7 +1290,8 @@ function estimatePrintUnits(record) {
     const maxLines = Math.max(
       printLineCount(record.name, 18),
       printLineCount(record.reservationStatus, 12),
-      printLineCount(record.nextBlocked, 10)
+      printLineCount(record.nextBlocked, 10),
+      printLineCount(record.notes, 32)
     );
     return Math.min(4, Math.max(1, maxLines));
   }
@@ -1332,34 +1300,16 @@ function estimatePrintUnits(record) {
 }
 
 function splitNumberedRecordsForPrint(numberedRecords) {
-  const limits = currentMode === MODE_ARRIVALS
-    ? PRINT_PAGE_LIMITS.arrivals
+  const rowsPerPage = currentMode === MODE_ARRIVALS
+    ? PRINT_ROWS_PER_PAGE.arrivals
     : currentMode === MODE_VACANT
-      ? PRINT_PAGE_LIMITS.vacant
-      : PRINT_PAGE_LIMITS.departures;
+      ? PRINT_ROWS_PER_PAGE.vacant
+      : PRINT_ROWS_PER_PAGE.departures;
 
   const pages = [];
-  let page = [];
-  let units = 0;
-
-  numberedRecords.forEach(item => {
-    const itemUnits = estimatePrintUnits(item.record);
-    const mustBreak = page.length > 0 && (
-      page.length >= limits.hardMax ||
-      units + itemUnits > limits.unitBudget
-    );
-
-    if (mustBreak) {
-      pages.push(page);
-      page = [];
-      units = 0;
-    }
-
-    page.push(item);
-    units += itemUnits;
-  });
-
-  if (page.length) pages.push(page);
+  for (let i = 0; i < numberedRecords.length; i += rowsPerPage) {
+    pages.push(numberedRecords.slice(i, i + rowsPerPage));
+  }
   return pages;
 }
 
@@ -1476,11 +1426,34 @@ function buildPrintableGroups() {
   return { groups: sorted, unassigned };
 }
 
-function renderPage(records, groupName) {
+function printedRowsPerPage() {
+  if (currentMode === MODE_ARRIVALS) return PRINT_ROWS_PER_PAGE.arrivals;
+  if (currentMode === MODE_VACANT) return PRINT_ROWS_PER_PAGE.vacant;
+  return PRINT_ROWS_PER_PAGE.departures;
+}
+
+function reportTitleForGroup(groupName) {
+  if (groupName === 'Ofis') return '';
+  const numeric = String(groupName || '').match(/\d+/)?.[0] || String(groupName || '').replace(/ler$/i, '');
+  if (currentMode === MODE_DEPARTURES) return 'Check Out List';
+  if (currentMode === MODE_ARRIVALS) return 'Check In List';
+  if (currentMode === MODE_VACANT) return 'Vacant List';
+  return String(groupName || '');
+}
+
+function blankTableRows(count, columnCount) {
+  if (!count || count < 1) return '';
+  const cells = Array.from({ length: columnCount }, (_, index) => `<td${index === columnCount - 1 ? ' class="notes"' : ''}>&nbsp;</td>`).join('');
+  return Array.from({ length: count }, () => `<tr class="blank-fill-row">${cells}</tr>`).join('');
+}
+
+function renderPage(records, groupName, options = {}) {
+  const { padToRows = 0 } = options;
   const isArrivals = currentMode === MODE_ARRIVALS;
   const isVacant = currentMode === MODE_VACANT;
+  const columnCount = isVacant ? 15 : (isArrivals ? 12 : 11);
   const page = document.createElement('article');
-  page.className = 'sheet-page';
+  page.className = `sheet-page ${groupName === 'Ofis' ? 'office-page' : 'auto-fill-page'}`;
   page.dataset.group = groupName;
 
   const rowsHtml = records.map(({ record, rowNumber }) => {
@@ -1503,6 +1476,7 @@ function renderPage(records, groupName) {
         <td>${escapeHtml(record.children)}</td>
         <td>${escapeHtml(record.discrepantStatus)}</td>
         <td>${escapeHtml(record.nextBlocked)}</td>
+        <td class="notes">${escapeHtml(record.notes)}</td>
       </tr>`;
     }
 
@@ -1538,9 +1512,13 @@ function renderPage(records, groupName) {
     </tr>`;
   }).join('');
 
+  const emptyRowsHtml = groupName === 'Ofis'
+    ? ''
+    : blankTableRows(Math.max(0, padToRows - records.length), columnCount);
+
   const colgroup = isVacant
     ? `<colgroup>
-        <col class="idx"><col class="room"><col class="vac-class"><col class="vac-type"><col class="vac-fo"><col class="vac-nights"><col class="name"><col class="date"><col class="date"><col class="vac-status"><col class="small"><col class="small"><col class="vac-disc"><col class="date">
+        <col class="idx"><col class="room"><col class="vac-class"><col class="vac-type"><col class="vac-fo"><col class="vac-nights"><col class="name"><col class="date"><col class="date"><col class="vac-status"><col class="small"><col class="small"><col class="vac-disc"><col class="date"><col class="notes">
       </colgroup>`
     : isArrivals
       ? `<colgroup>
@@ -1566,6 +1544,7 @@ function renderPage(records, groupName) {
         <th>Ch.</th>
         <th>Disc.</th>
         <th>Next<br>Blocked</th>
+        <th>NOTLAR</th>
       </tr>`
     : isArrivals
       ? `<tr>
@@ -1596,17 +1575,19 @@ function renderPage(records, groupName) {
         <th>NOTLAR</th>
       </tr>`;
 
-  const columnCount = isVacant ? 14 : (isArrivals ? 12 : 11);
   const officeHeader = groupName === 'Ofis'
     ? `<tr class="office-head-row"><th colspan="${columnCount}">OFİS</th></tr>`
     : '';
+  const reportTitle = reportTitleForGroup(groupName);
+  const titleHtml = reportTitle ? `<div class="report-title">${escapeHtml(reportTitle)}</div>` : '';
 
   page.innerHTML = `
+    ${titleHtml}
     <div class="table-wrap">
       <table class="departure-table ${isVacant ? 'vacant-table' : (isArrivals ? 'arrival-table' : 'departure-mode-table')}">
         ${colgroup}
         <thead>${officeHeader}${header}</thead>
-        <tbody>${rowsHtml}</tbody>
+        <tbody>${rowsHtml}${emptyRowsHtml}</tbody>
       </table>
     </div>`;
 
@@ -1638,11 +1619,11 @@ function renderPrintablePreview(groups) {
       return;
     }
 
-    // Uzun isim/acenteler satırı büyütebildiği için sabit 33 satır bazen
-    // yazdırmada sayfa sınırında satırın kaybolmasına neden oluyordu.
-    // Burada satır yüksekliği tahminiyle daha güvenli sayfalara bölüyoruz.
+    // PDF/yazdırmada her 1000/2000/3000/4000/5000 grubu ayrı A4 sayfa olarak çıkar.
+    // Az kayıt varsa kalan alan boş tablo satırlarıyla doldurulur; sonraki grup aynı sayfaya girmez.
+    const rowsPerPage = printedRowsPerPage();
     const pages = splitNumberedRecordsForPrint(numbered);
-    pages.forEach(pageRecords => renderPage(pageRecords, groupName));
+    pages.forEach(pageRecords => renderPage(pageRecords, groupName, { padToRows: rowsPerPage }));
   });
 }
 
@@ -1718,16 +1699,26 @@ function renderAssignmentControls(currentGroups = new Map()) {
           </label>` : '';
 
     const selectHtml = !isLeave && selectableSections.length ? `
-      <label class="assign-label" for="assign-${groupName}">Eklenecek bölümler</label>
-      <select id="assign-${groupName}" class="assignment-select" data-target="${groupName}" multiple size="${Math.min(Math.max(selectableSections.length, 3), 7)}">
+      <div class="assign-head-row">
+        <label class="assign-label">Eklenecek bölümler</label>
+        <div class="assign-actions">
+          <button type="button" class="mini-assign-btn" data-assign-all="${groupName}">Boştakileri al</button>
+          <button type="button" class="mini-assign-btn ghost" data-assign-clear="${groupName}">Temizle</button>
+        </div>
+      </div>
+      <div class="assignment-checklist" data-target="${groupName}">
         ${selectableSections.map(section => {
           const assignedTarget = sectionAssignments.get(section.key);
-          const selected = assignedTarget === groupName ? 'selected' : '';
-          const optionDisabled = assignedTarget && assignedTarget !== groupName ? 'disabled' : '';
-          const label = `${section.sourceGroup} → ${section.sectionName} (${section.records.length} oda${formatLateOption(section.records)})`;
-          return `<option value="${escapeHtml(section.key)}" ${selected} ${optionDisabled}>${escapeHtml(label)}</option>`;
+          const checked = assignedTarget === groupName ? 'checked' : '';
+          const disabled = assignedTarget && assignedTarget !== groupName ? 'disabled' : '';
+          const ownerText = assignedTarget && assignedTarget !== groupName ? ` • ${assignedTarget} aldı` : '';
+          const label = `${section.sectionName} (${section.records.length} oda${formatLateOption(section.records)})${ownerText}`;
+          return `<label class="assignment-check ${disabled ? 'is-disabled' : ''}">
+            <input type="checkbox" value="${escapeHtml(section.key)}" data-target="${groupName}" ${checked} ${disabled}>
+            <span>${escapeHtml(label)}</span>
+          </label>`;
         }).join('')}
-      </select>` : '';
+      </div>` : '';
 
     const leaveNoteLate = lateText(originalRecords);
     const leaveNote = leaveNoteLate ? `İzinli: ${originalCount} oda / ${leaveNoteLate}` : `İzinli: ${originalCount} oda`;
@@ -1774,7 +1765,7 @@ function updateOutput(message) {
   }
 
   if (unassigned.length) {
-    const labels = unassigned.map(section => `${section.sourceGroup} → ${section.sectionName}`).join(', ');
+    const labels = unassigned.map(section => `${section.sectionName}`).join(', ');
     setStatus(`İzinli bölüm atanmamış: ${labels}. PDF almak için bunları aktif kat şeflerine ekle.`, 'error');
   } else if (!groups.size) {
     setStatus('Yazdırılacak grup kalmadı. En az bir kat şefi aktif olmalı.', 'error');
@@ -2093,22 +2084,40 @@ chiefControls.addEventListener('change', event => {
     return;
   }
 
-  const select = event.target.closest('select.assignment-select');
-  if (select) {
-    const targetGroup = select.dataset.target;
-    const currentTargetSections = new Set([...sectionAssignments.entries()]
-      .filter(([, target]) => target === targetGroup)
-      .map(([key]) => key));
-    const selectedKeys = new Set([...select.selectedOptions].map(option => option.value));
-
-    currentTargetSections.forEach(key => {
-      if (!selectedKeys.has(key)) sectionAssignments.delete(key);
-    });
-
-    selectedKeys.forEach(key => {
+  const assignCheck = event.target.closest('.assignment-check input[type="checkbox"]');
+  if (assignCheck) {
+    const targetGroup = assignCheck.dataset.target;
+    const key = assignCheck.value;
+    if (assignCheck.checked) {
       sectionAssignments.set(key, targetGroup);
-    });
+    } else if (sectionAssignments.get(key) === targetGroup) {
+      sectionAssignments.delete(key);
+    }
+    cleanAssignments();
+    updateOutput();
+  }
+});
 
+chiefControls.addEventListener('click', event => {
+  const assignAllBtn = event.target.closest('[data-assign-all]');
+  if (assignAllBtn) {
+    const targetGroup = assignAllBtn.dataset.assignAll;
+    getLeaveSections().forEach(section => {
+      if (section.sourceGroup !== targetGroup && !sectionAssignments.has(section.key)) {
+        sectionAssignments.set(section.key, targetGroup);
+      }
+    });
+    cleanAssignments();
+    updateOutput();
+    return;
+  }
+
+  const assignClearBtn = event.target.closest('[data-assign-clear]');
+  if (assignClearBtn) {
+    const targetGroup = assignClearBtn.dataset.assignClear;
+    [...sectionAssignments.entries()].forEach(([key, target]) => {
+      if (target === targetGroup) sectionAssignments.delete(key);
+    });
     cleanAssignments();
     updateOutput();
   }
@@ -2154,36 +2163,14 @@ function excelCellStyle({ fill = 'FFFFFF', bold = true, size = 10, align = 'cent
   };
 }
 
-function excelHeaders(isArrivals, isVacant = false) {
-  if (isVacant) {
-    return ['', 'Room', 'Class', 'Type', 'FO', 'Nights\nVac.', 'Name', 'Arr.', 'Dep.', 'Res.\nStatus', 'Ad.', 'Ch.', 'Disc.', 'Next\nBlocked'];
-  }
+function excelHeaders(isArrivals) {
   if (isArrivals) {
     return ['', 'Room', 'ETA', 'Arrival', 'Adult\ns', 'Childr\nen', 'Child\nAges', 'Departure', 'ETD', 'Name', 'Travel\nAgent', 'NOTLAR'];
   }
   return ['', 'Room', 'ETA', 'Arrival', 'Adul\nts', 'Childr\nen', 'Child\nAges', 'Departure', 'ETD', 'Travel Agent', 'NOTLAR'];
 }
 
-function recordToExcelRow(record, rowNumber, isArrivals, isVacant = false) {
-  if (isVacant) {
-    return [
-      rowNumber,
-      record.room,
-      record.roomClass,
-      record.roomType,
-      record.foStatus,
-      record.nightsVacant,
-      record.name,
-      record.arrival,
-      record.departure,
-      record.reservationStatus,
-      record.adults,
-      record.children,
-      record.discrepantStatus,
-      record.nextBlocked,
-    ];
-  }
-
+function recordToExcelRow(record, rowNumber, isArrivals) {
   if (isArrivals) {
     return [
       rowNumber,
@@ -2218,7 +2205,7 @@ function recordToExcelRow(record, rowNumber, isArrivals, isVacant = false) {
 
 function excelColumnWidths(isArrivals, isVacant = false) {
   if (isVacant) {
-    return [4.5, 7, 8, 7, 6, 7.5, 22, 9, 9, 14, 5, 5, 7, 13].map(wch => ({ wch }));
+    return [4.5, 7, 8, 7, 6, 7.5, 18, 9, 9, 12, 5, 5, 7, 11, 28].map(wch => ({ wch }));
   }
   if (isArrivals) {
     return [4.5, 8, 9, 11, 6, 6.5, 8.5, 11, 8.5, 13, 12, 34].map(wch => ({ wch }));
@@ -2295,7 +2282,7 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant 
       if (isArrivals && [3, 7, 8, 9, 10].includes(c)) {
         cell.s = compactArrivalTextStyle;
       }
-      if (!isVacant && c === columnCount - 1) {
+      if (c === columnCount - 1) {
         cell.s = notesStyle;
       }
       if (c === 1 && isGreenRoom(record)) {
@@ -2370,7 +2357,7 @@ function exportCurrentExcel() {
 
   const { groups, unassigned } = buildPrintableGroups();
   if (unassigned.length) {
-    const labels = unassigned.map(section => `${section.sourceGroup} → ${section.sectionName}`).join(', ');
+    const labels = unassigned.map(section => `${section.sectionName}`).join(', ');
     setStatus(`Excel alınamadı. Önce atanmayan izinli bölümleri seç: ${labels}.`, 'error');
     return;
   }
@@ -2456,7 +2443,7 @@ function printCleanPdf(options = {}) {
   if (!skipAssignmentCheck) {
     const { unassigned } = buildPrintableGroups();
     if (unassigned.length) {
-      const labels = unassigned.map(section => `${section.sourceGroup} → ${section.sectionName}`).join(', ');
+      const labels = unassigned.map(section => `${section.sectionName}`).join(', ');
       setStatus(`PDF alınamadı. Önce atanmayan izinli bölümleri seç: ${labels}.`, 'error');
       return;
     }

@@ -348,6 +348,23 @@ button.office-action {
 
 .table-wrap { overflow-x: auto; }
 
+.report-title {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 22px;
+  line-height: 1.05;
+  font-weight: 950;
+  color: #111;
+  letter-spacing: .02em;
+}
+
+.departure-table .blank-fill-row td {
+  color: transparent;
+  font-weight: 400;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
 .office-print-title {
   text-align: right;
   font-weight: 950;
@@ -452,18 +469,31 @@ table.departure-table {
     font-size: 17px;
     padding: 0 2px 4px 0;
   }
+  .report-title {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
   .sheet-page {
     box-shadow: none;
     border-radius: 0;
     width: 210mm;
-    min-height: auto;
+    height: 297mm;
+    min-height: 297mm;
     box-sizing: border-box;
-    padding: 9mm 8mm;
+    padding: 8mm 8mm;
     margin: 0;
     overflow: visible !important;
     page-break-after: always;
     break-after: page;
   }
+
+  .office-page {
+    height: auto;
+    min-height: auto;
+    overflow: visible !important;
+  }
+
+  /* Her grup ayrı A4 sayfada kalır. Son sayfada kalan alan boş satırlarla doldurulur. */
   .sheet-page:last-child { page-break-after: auto; break-after: auto; }
   table.departure-table { font-size: 11px; }
   .departure-table th,
@@ -471,6 +501,11 @@ table.departure-table {
     padding: 3px 2px;
     height: 24px;
     border: 1.2px solid #555;
+  }
+  .departure-table .blank-fill-row td {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: transparent !important;
   }
   .departure-table col.idx { width: 32px; }
   .departure-table col.room { width: 58px; }
@@ -546,7 +581,8 @@ table.departure-table {
 
 .chief-top span,
 .chief-note,
-.assignment-select + small {
+.assignment-select + small,
+.assignment-check span {
   color: var(--muted);
   font-size: 12px;
 }
@@ -571,12 +607,43 @@ table.departure-table {
   accent-color: var(--accent);
 }
 
+.assign-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
 .assign-label {
   display: block;
-  margin: 12px 0 6px;
+  margin: 0;
   color: #443a34;
   font-size: 12px;
   font-weight: 800;
+}
+
+.assign-actions {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mini-assign-btn {
+  border: 1px solid #d8c5ba;
+  background: #fbf7f3;
+  color: #633427;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mini-assign-btn.ghost {
+  background: #fff;
+  color: #7b6a60;
 }
 
 .assignment-select {
@@ -601,6 +668,43 @@ table.departure-table {
 .assignment-select + small {
   display: block;
   margin-top: 5px;
+}
+
+.assignment-checklist {
+  display: grid;
+  gap: 6px;
+  max-height: 230px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #d8c5ba;
+  border-radius: 12px;
+  background: #fbf7f3;
+}
+
+.assignment-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid #eadbd1;
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 800;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.assignment-check input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  accent-color: var(--accent);
+}
+
+.assignment-check.is-disabled {
+  opacity: .52;
+  cursor: not-allowed;
 }
 
 .assignment-status {
@@ -972,11 +1076,12 @@ table.departure-table {
 .departure-table.vacant-table col.vac-type { width: 38px; }
 .departure-table.vacant-table col.vac-fo { width: 32px; }
 .departure-table.vacant-table col.vac-nights { width: 38px; }
-.departure-table.vacant-table col.name { width: 140px; }
-.departure-table.vacant-table col.date { width: 64px; }
-.departure-table.vacant-table col.vac-status { width: 90px; }
+.departure-table.vacant-table col.name { width: 105px; }
+.departure-table.vacant-table col.date { width: 56px; }
+.departure-table.vacant-table col.vac-status { width: 70px; }
 .departure-table.vacant-table col.small { width: 30px; }
 .departure-table.vacant-table col.vac-disc { width: 40px; }
+.departure-table.vacant-table col.notes { width: 112px; }
 
 @media print {
   table.departure-table.vacant-table { font-size: 8px; }
@@ -996,15 +1101,16 @@ table.departure-table {
   .departure-table.vacant-table col.vac-type { width: 34px; }
   .departure-table.vacant-table col.vac-fo { width: 28px; }
   .departure-table.vacant-table col.vac-nights { width: 34px; }
-  .departure-table.vacant-table col.name { width: 115px; }
-  .departure-table.vacant-table col.date { width: 54px; }
-  .departure-table.vacant-table col.vac-status { width: 78px; }
+  .departure-table.vacant-table col.name { width: 80px; }
+  .departure-table.vacant-table col.date { width: 48px; }
+  .departure-table.vacant-table col.vac-status { width: 60px; }
   .departure-table.vacant-table col.small { width: 26px; }
   .departure-table.vacant-table col.vac-disc { width: 34px; }
+  .departure-table.vacant-table col.notes { width: 120px; }
 }
 
 /* Arrivals: Excel'de Next Day olan ETA saatlerini farklı renkte göster */
 .departure-table.arrival-table .eta-next-day {
-  color: #000000;
-
+  color: #5b5fc7;
+  font-weight: 950;
 }
