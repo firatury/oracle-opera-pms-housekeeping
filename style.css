@@ -1109,3 +1109,339 @@ table.departure-table {
   .departure-table.vacant-table col.notes { width: 120px; }
 }
 
+
+/* Ayarlar paneli */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(30, 24, 20, .45);
+  padding: 20px;
+}
+
+.settings-modal {
+  width: min(720px, 100%);
+  max-height: min(86vh, 780px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 22px;
+  border: 1px solid rgba(142, 77, 59, .2);
+  box-shadow: 0 30px 90px rgba(34, 26, 19, .35);
+  padding: 22px 24px;
+}
+
+.settings-modal h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.settings-section {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: var(--accent);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+}
+
+.settings-grid label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #443a34;
+}
+
+.settings-grid input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d8c5ba;
+  border-radius: 10px;
+  padding: 4px 10px;
+  background: #fbf7f3;
+  font-weight: 700;
+  outline: none;
+}
+
+.settings-grid input[type="color"] {
+  padding: 3px;
+  cursor: pointer;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.settings-checks {
+  align-items: end;
+}
+
+.settings-check {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px !important;
+  min-height: 38px;
+}
+
+.settings-check input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* Late Check Out ekranı - şablonun (latecout-sablon.xlsx) birebir doğal ölçüleri.
+   Tasarım 2697px genişliğinde çizilir; ekrana ve A4'e JS ile transform: scale() uygulanır. */
+.latecout-page {
+  overflow: hidden;
+}
+
+.lc-scaler {
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.latecout-natural {
+  transform-origin: top left;
+  width: 2697px; /* A sütunu (43px) + B..K (2654px) */
+  background: #fff;
+  color: #000;
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+}
+
+.lc-space-row {
+  height: 240px; /* şablondaki boş 1. satır: 180pt */
+  position: relative;
+}
+
+/* Şablondaki HolidayVillages logosu: row 1 içinde, x=102px y=75px, 405x160px */
+.lc-logo {
+  position: absolute;
+  left: 102px;
+  top: 75px;
+  width: 405px;
+  height: 160px;
+  object-fit: fill;
+}
+
+/* Şablon satır 66: siyah ayraç (28.5pt) */
+.lc-gap {
+  height: 6px; /* gizli satırlar arasındaki ince görünür pay (satır 32+45+57) */
+}
+
+.lc-blackbar {
+  height: 38px;
+  background: #000;
+}
+
+/* Şablon alt bölümü (satır 67-98): personel ızgarası */
+.lc-table.lc-staff td {
+  height: 47px; /* 35.1pt */
+  font-size: 29px; /* Calibri 22pt */
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 2px 4px;
+}
+
+.lc-staff .lc-st-head td {
+  height: 121px; /* 90.75pt */
+}
+
+.lc-st-yellow {
+  background: #ffff00;
+  font-size: 48px; /* Calibri 36pt */
+  line-height: 1.1;
+}
+
+.lc-st-yellow2 {
+  background: #ffff00;
+  font-size: 35px; /* Calibri 26pt */
+  line-height: 1.05;
+}
+
+.lc-st-red {
+  background: #ff0000;
+  font-size: 27px; /* Calibri 20pt */
+}
+
+.lc-st-red2 {
+  background: #ff0000;
+  font-size: 27px;
+}
+
+.lc-st-amber {
+  background: #ffc000;
+}
+
+.lc-st-f {
+  background: #f8cbad;
+}
+
+.lc-st-num {
+  background: #f8cbad;
+}
+
+.lc-st-name {
+  background: #f8cbad;
+  text-align: left;
+}
+
+.lc-st-ij {
+  background: #fff;
+}
+
+.lc-st-k {
+  background: #fff;
+}
+
+.lc-st-g,
+.lc-st-h {
+  background: #fff;
+}
+
+.lc-st-blank {
+  border: none !important;
+  background: #fff;
+}
+
+.lc-st-exec {
+  border: none !important;
+  font-size: 48px; /* Calibri 36pt */
+  background: #fff;
+}
+
+.lc-st-exec-top {
+  border-top: 2px solid #000 !important;
+}
+
+.lc-grid {
+  margin-left: 43px; /* boş A sütunu */
+  width: 2654px;
+}
+
+.lc-titlebar {
+  display: flex;
+  height: 130px; /* 97.5pt */
+}
+
+.lc-title,
+.lc-date {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 2px solid #000;
+  font-size: 64px; /* Calibri 48pt */
+  font-weight: 700;
+  color: #000;
+  background: #f4b183;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
+.lc-title {
+  width: 1705px; /* B2:H2 birleşik hücre */
+  border-right: 0;
+}
+
+.lc-date {
+  width: 949px; /* I2:K2 birleşik hücre */
+}
+
+table.lc-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 2654px;
+}
+
+.lc-table th,
+.lc-table td {
+  border: 2px solid #000;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  overflow: hidden;
+}
+
+.lc-table thead th {
+  background: #f4b183;
+  font-size: 29px; /* Calibri 22pt */
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+  height: 124px; /* 93pt */
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.lc-table tbody td {
+  background: #fff;
+  font-size: 48px; /* Calibri 36pt */
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+  height: 80px; /* 60pt */
+  white-space: nowrap;
+}
+
+.lc-table td.lc-pax {
+  white-space: nowrap;
+}
+
+.lc-table td.lc-maid {
+  background: #fff;
+}
+
+/* J4:J23 birleşik hücresi: yeşil zemin, sarı yazı, üstten hizalı */
+.lc-table td.lc-sup-name {
+  background: #00b050;
+  color: #ffff00;
+  font-size: 64px; /* Calibri 48pt */
+  vertical-align: top;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.1;
+  padding: 8px 4px;
+}
+
+/* K4:K23 birleşik hücresi: pembe zemin, büyük yazı, ortalı */
+.lc-table td.lc-sup-time {
+  background: #ff66ff;
+  color: #000;
+  font-size: 120px; /* Calibri 90pt */
+  vertical-align: middle;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.05;
+  padding: 8px 4px;
+}
+
+.lc-table td.lc-empty {
+  font-size: 32px;
+  white-space: normal;
+}
+
+.mode-latecout .mode-btn.active {
+  background: #6d5ba8;
+  box-shadow: 0 8px 18px rgba(109, 91, 168, .18);
+}

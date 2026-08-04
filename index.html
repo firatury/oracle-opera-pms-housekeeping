@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body class="mode-departures">
   <main id="appShell" class="app-shell">
@@ -17,6 +18,7 @@
           <button id="arrivalsModeBtn" class="mode-btn" type="button" aria-pressed="false">Arrivals</button>
           <button id="dndModeBtn" class="mode-btn" type="button" aria-pressed="false">DND / TİST</button>
           <button id="vacantModeBtn" class="mode-btn" type="button" aria-pressed="false">Vacant</button>
+          <button id="lateCoutModeBtn" class="mode-btn" type="button" aria-pressed="false">Late C/Out</button>
         </div>
       </div>
       <h1 id="appTitle" class="app-title">Departures</h1>
@@ -50,6 +52,7 @@
         <button id="officeBtn" type="button" disabled class="office-action">Ofis</button>
         <button id="officeExcelBtn" type="button" disabled class="office-action">Ofis Excel</button>
         <button id="clearBtn" type="button" disabled class="ghost">Temizle</button>
+        <button id="settingsBtn" type="button" class="ghost">Ayarlar</button>
       </div>
 
       <div id="status" class="status">Henüz dosya yüklenmedi.</div>
@@ -65,6 +68,79 @@
     </section>
   </main>
 
+  <div id="settingsOverlay" class="settings-overlay no-print" hidden>
+    <div class="settings-modal" role="dialog" aria-label="Ayarlar">
+      <h2>Ayarlar</h2>
+      <div class="settings-section">Renkler</div>
+      <div class="settings-grid">
+        <label>Tablo başlık rengi <input type="color" data-setting="headerColor"></label>
+        <label>Arrivals başlık rengi <input type="color" data-setting="arrivalsHeaderColor"></label>
+        <label>Vurgu / buton rengi <input type="color" data-setting="accentColor"></label>
+        <label>ETD vurgu rengi <input type="color" data-setting="etdColor"></label>
+        <label>Yeşil oda rengi <input type="color" data-setting="greenColor"></label>
+      </div>
+      <div class="settings-section">Boyutlar</div>
+      <div class="settings-grid">
+        <label>Ekran yazı boyutu (px) <input type="number" min="7" max="24" step="1" data-setting="screenFontSize"></label>
+        <label>PDF yazı boyutu (px) <input type="number" min="6" max="20" step="1" data-setting="printFontSize"></label>
+        <label>Ekran satır yüksekliği (px) <input type="number" min="16" max="80" step="1" data-setting="screenRowHeight"></label>
+        <label>PDF satır yüksekliği (px) <input type="number" min="14" max="60" step="1" data-setting="printRowHeight"></label>
+        <label>Sayfa başına satır <input type="number" min="5" max="80" step="1" data-setting="rowsPerPage"></label>
+        <label>ETD geç saati <input type="time" data-setting="etdLateTime"></label>
+      </div>
+      <div class="settings-section">Yazı &amp; Kenarlık</div>
+      <div class="settings-grid">
+        <label>Yazı tipi <input type="text" data-setting="fontFamily" placeholder="Arial, Helvetica, sans-serif"></label>
+        <label>Başlık yazı rengi <input type="color" data-setting="headerTextColor"></label>
+        <label>Gövde yazı rengi <input type="color" data-setting="bodyTextColor"></label>
+        <label>Kenarlık rengi <input type="color" data-setting="borderColor"></label>
+        <label>Kenarlık kalınlığı (px) <input type="number" min="0.5" max="5" step="0.5" data-setting="borderWidth"></label>
+        <label>Sayfa kenar boşluğu PDF (mm) <input type="number" min="0" max="25" step="1" data-setting="printPagePadding"></label>
+      </div>
+      <div class="settings-section">Kolon Genişlikleri px (boş = varsayılan)</div>
+      <div class="settings-grid">
+        <label>No <input type="number" min="0" max="400" step="1" data-setting="wIdx" placeholder="auto"></label>
+        <label>Room <input type="number" min="0" max="400" step="1" data-setting="wRoom" placeholder="auto"></label>
+        <label>ETA / ETD <input type="number" min="0" max="400" step="1" data-setting="wTime" placeholder="auto"></label>
+        <label>Tarih <input type="number" min="0" max="400" step="1" data-setting="wDate" placeholder="auto"></label>
+        <label>Adults / Children <input type="number" min="0" max="400" step="1" data-setting="wSmall" placeholder="auto"></label>
+        <label>Child Ages <input type="number" min="0" max="400" step="1" data-setting="wAge" placeholder="auto"></label>
+        <label>Name <input type="number" min="0" max="400" step="1" data-setting="wName" placeholder="auto"></label>
+        <label>Travel Agent <input type="number" min="0" max="400" step="1" data-setting="wAgent" placeholder="auto"></label>
+        <label>Notlar <input type="number" min="0" max="400" step="1" data-setting="wNotes" placeholder="auto"></label>
+      </div>
+      <div class="settings-section">Davranış</div>
+      <div class="settings-grid settings-checks">
+        <label class="settings-check"><input type="checkbox" data-setting="boldBody"> Gövde yazısı kalın</label>
+        <label class="settings-check"><input type="checkbox" data-setting="etdHighlightEnabled"> ETD vurgusu aktif</label>
+        <label class="settings-check"><input type="checkbox" data-setting="showReportTitle"> Rapor başlığını göster</label>
+        <label class="settings-check"><input type="checkbox" data-setting="fillBlankRows"> Boş satırlarla sayfayı doldur</label>
+        <label class="settings-check"><input type="checkbox" data-setting="showSummary"> Özet kartlarını göster</label>
+        <label>DND en az gün <input type="number" min="2" max="10" step="1" data-setting="dndMinDays"></label>
+        <label>Late C/Out ETD listesi <input type="text" data-setting="lateEtdList" placeholder="17:00, 18:00"></label>
+        <label>Late C/Out kat şefi adı <input type="text" data-setting="lateCoutSupervisor" placeholder="örn. RECEP KESKİN"></label>
+        <label>Late C/Out servis saati <input type="text" data-setting="lateCoutServiceTime" placeholder="18:30"></label>
+        <label>Excel satır yüksekliği (0 = auto) <input type="number" min="0" max="60" step="1" data-setting="excelRowHeight" placeholder="0"></label>
+      </div>
+      <div class="settings-section">Başlıklar</div>
+      <div class="settings-grid">
+        <label>Departures başlığı <input type="text" data-setting="titleDepartures"></label>
+        <label>Arrivals başlığı <input type="text" data-setting="titleArrivals"></label>
+        <label>Vacant başlığı <input type="text" data-setting="titleVacant"></label>
+        <label>Late C/Out başlığı <input type="text" data-setting="titleLateCout"></label>
+      </div>
+      <div class="settings-actions">
+        <button id="settingsSaveBtn" type="button">Kaydet</button>
+        <button id="settingsExportBtn" type="button" class="ghost">Dışa Aktar</button>
+        <button id="settingsImportBtn" type="button" class="ghost">İçe Aktar</button>
+        <button id="settingsResetBtn" type="button" class="ghost">Varsayılanlara Dön</button>
+        <button id="settingsCloseBtn" type="button" class="ghost">Kapat</button>
+      </div>
+      <input id="settingsImportInput" type="file" accept=".json,application/json" hidden>
+    </div>
+  </div>
+
+  <script src="latecout-template.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -23,22 +23,33 @@ const departuresModeBtn = document.getElementById('departuresModeBtn');
 const arrivalsModeBtn = document.getElementById('arrivalsModeBtn');
 const dndModeBtn = document.getElementById('dndModeBtn');
 const vacantModeBtn = document.getElementById('vacantModeBtn');
+const lateCoutModeBtn = document.getElementById('lateCoutModeBtn');
 const greenPanel = document.getElementById('greenPanel');
 const greenRoomsInput = document.getElementById('greenRoomsInput');
 const currentRoomsPanel = document.getElementById('currentRoomsPanel');
 const currentRoomsInput = document.getElementById('currentRoomsInput');
 const currentRoomsStatus = document.getElementById('currentRoomsStatus');
 const uploadTitle = document.getElementById('uploadTitle');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsOverlay = document.getElementById('settingsOverlay');
+const settingsSaveBtn = document.getElementById('settingsSaveBtn');
+const settingsExportBtn = document.getElementById('settingsExportBtn');
+const settingsImportBtn = document.getElementById('settingsImportBtn');
+const settingsImportInput = document.getElementById('settingsImportInput');
+const settingsResetBtn = document.getElementById('settingsResetBtn');
+const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 
 const MODE_DEPARTURES = 'departures';
 const MODE_ARRIVALS = 'arrivals';
 const MODE_DND = 'dnd';
 const MODE_VACANT = 'vacant';
-const ETD_HIGHLIGHT = '17:00';
+const MODE_LATECOUT = 'latecout';
+let ETD_HIGHLIGHT = '17:00';
 const PRINT_ROWS_PER_PAGE = {
   departures: 38,
   arrivals: 38,
   vacant: 38,
+  latecout: 41,
 };
 const CHIEF_GROUPS = ['1000ler', '2000ler', '3000ler', '4000ler', '5000ler'];
 const LEAVE_ELIGIBLE_GROUPS = CHIEF_GROUPS.filter(group => group !== '5000ler');
@@ -55,6 +66,8 @@ let greenRooms = new Set();
 let currentRoomFilter = new Map(); // room -> { room, arrivalDate, source }
 let currentRoomFileNames = [];
 let dndResults = [];
+let lateCoutResults = [];
+let lateCoutDateText = '';
 let dndDateWindowText = '';
 let dndFilterStats = { active: false, currentRooms: 0, skippedOldRooms: 0, stoppedBeforeArrival: 0 };
 
@@ -76,10 +89,259 @@ const REQUIRED_KEYS = {
   [MODE_ARRIVALS]: ['room', 'eta', 'arrival', 'adults', 'children', 'childAges', 'departure', 'etd', 'name', 'travelAgent'],
 };
 
+/* ---------- Ayarlar ---------- */
+const SETTINGS_KEY = 'listeAyarlarV1';
+const DEFAULT_SETTINGS = {
+  headerColor: '#c8755c',
+  arrivalsHeaderColor: '#79a9d4',
+  accentColor: '#8e4d3b',
+  etdColor: '#fff176',
+  greenColor: '#b8d8bd',
+  screenFontSize: 13,
+  printFontSize: 11,
+  screenRowHeight: 31,
+  printRowHeight: 24,
+  rowsPerPage: 38,
+  etdLateTime: '17:00',
+  titleDepartures: 'Check Out List',
+  titleArrivals: 'Check In List',
+  titleVacant: 'Vacant List',
+  fontFamily: 'Arial, Helvetica, sans-serif',
+  headerTextColor: '#2a120c',
+  bodyTextColor: '#171717',
+  borderColor: '#635d56',
+  borderWidth: 1.5,
+  boldBody: true,
+  etdHighlightEnabled: true,
+  showReportTitle: true,
+  fillBlankRows: true,
+  showSummary: true,
+  printPagePadding: 8,
+  dndMinDays: 2,
+  excelRowHeight: 0,
+  lateEtdList: '17:00, 18:00',
+  titleLateCout: 'PALACE  17:00  LATE CHECK OUT GÖREV DAĞILIMI',
+  lateCoutSupervisor: 'RECEP KESKİN',
+  lateCoutServiceTime: '18:30',
+  wIdx: 0, wRoom: 0, wTime: 0, wDate: 0, wSmall: 0,
+  wAge: 0, wName: 0, wAgent: 0, wNotes: 0,
+};
+let appSettings = { ...DEFAULT_SETTINGS };
+
+const SETTING_COLOR_KEYS = ['headerColor', 'arrivalsHeaderColor', 'accentColor', 'etdColor', 'greenColor', 'headerTextColor', 'bodyTextColor', 'borderColor'];
+const SETTING_BOOL_KEYS = ['boldBody', 'etdHighlightEnabled', 'showReportTitle', 'fillBlankRows', 'showSummary'];
+const SETTING_WIDTH_KEYS = ['wIdx', 'wRoom', 'wTime', 'wDate', 'wSmall', 'wAge', 'wName', 'wAgent', 'wNotes'];
+const SETTING_ZERO_OK_KEYS = [...SETTING_WIDTH_KEYS, 'printPagePadding', 'excelRowHeight'];
+const SETTING_COL_CLASS = {
+  wIdx: 'idx', wRoom: 'room', wTime: 'time', wDate: 'date', wSmall: 'small',
+  wAge: 'age', wName: 'name', wAgent: 'agent', wNotes: 'notes',
+};
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+function sanitizeSettings(input = {}) {
+  const merged = { ...DEFAULT_SETTINGS, ...input };
+  merged.screenFontSize = clampNumber(merged.screenFontSize, 7, 24, DEFAULT_SETTINGS.screenFontSize);
+  merged.printFontSize = clampNumber(merged.printFontSize, 6, 20, DEFAULT_SETTINGS.printFontSize);
+  merged.screenRowHeight = clampNumber(merged.screenRowHeight, 16, 80, DEFAULT_SETTINGS.screenRowHeight);
+  merged.printRowHeight = clampNumber(merged.printRowHeight, 14, 60, DEFAULT_SETTINGS.printRowHeight);
+  merged.rowsPerPage = Math.round(clampNumber(merged.rowsPerPage, 5, 80, DEFAULT_SETTINGS.rowsPerPage));
+  merged.borderWidth = clampNumber(merged.borderWidth, 0.5, 5, DEFAULT_SETTINGS.borderWidth);
+  merged.printPagePadding = clampNumber(merged.printPagePadding, 0, 25, DEFAULT_SETTINGS.printPagePadding);
+  merged.dndMinDays = Math.round(clampNumber(merged.dndMinDays, 2, 10, DEFAULT_SETTINGS.dndMinDays));
+  merged.excelRowHeight = clampNumber(merged.excelRowHeight, 0, 60, DEFAULT_SETTINGS.excelRowHeight);
+  SETTING_WIDTH_KEYS.forEach(key => {
+    merged[key] = clampNumber(merged[key], 0, 400, 0);
+  });
+  SETTING_BOOL_KEYS.forEach(key => {
+    merged[key] = Boolean(merged[key]);
+  });
+  if (!/^\d{2}:\d{2}$/.test(String(merged.etdLateTime || ''))) merged.etdLateTime = DEFAULT_SETTINGS.etdLateTime;
+  SETTING_COLOR_KEYS.forEach(key => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(String(merged[key] || ''))) merged[key] = DEFAULT_SETTINGS[key];
+  });
+  merged.fontFamily = String(merged.fontFamily || '').replace(/[;}<>]/g, '').trim() || DEFAULT_SETTINGS.fontFamily;
+  merged.lateEtdList = String(merged.lateEtdList || '').trim() || DEFAULT_SETTINGS.lateEtdList;
+  merged.lateCoutSupervisor = String(merged.lateCoutSupervisor ?? '').trim();
+  merged.lateCoutServiceTime = String(merged.lateCoutServiceTime ?? '').trim();
+  return merged;
+}
+
+function lateEtdList() {
+  const list = String(appSettings.lateEtdList || '')
+    .split(/[,;\s]+/)
+    .map(token => token.trim())
+    .filter(token => /^\d{1,2}:\d{2}$/.test(token))
+    .map(token => token.padStart(5, '0'));
+  return list.length ? [...new Set(list)] : ['17:00', '18:00'];
+}
+
+function loadSettings() {
+  try {
+    const rawText = localStorage.getItem(SETTINGS_KEY);
+    if (rawText) appSettings = sanitizeSettings(JSON.parse(rawText));
+  } catch (error) {
+    console.warn('Ayarlar okunamadı, varsayılanlar kullanılıyor.', error);
+    appSettings = { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettingsToStorage() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings));
+  } catch (error) {
+    console.warn('Ayarlar kaydedilemedi.', error);
+  }
+}
+
+function buildSettingsCss(s) {
+  let widthCss = '';
+  Object.entries(SETTING_COL_CLASS).forEach(([key, cls]) => {
+    if (s[key] > 0) widthCss += `.departure-table col.${cls} { width: ${s[key]}px !important; }\n`;
+  });
+
+  return `
+:root { --header: ${s.headerColor}; --accent: ${s.accentColor}; --etd: ${s.etdColor}; }
+.departure-table.arrival-table thead th { background: ${s.arrivalsHeaderColor}; }
+.departure-table thead th { color: ${s.headerTextColor}; }
+.departure-table .room-green { background: ${s.greenColor} !important; }
+table.departure-table { font-size: ${s.screenFontSize}px; font-family: ${s.fontFamily}; color: ${s.bodyTextColor}; }
+.departure-table th, .departure-table td {
+  height: ${s.screenRowHeight}px;
+  border: ${s.borderWidth}px solid ${s.borderColor} !important;
+}
+.departure-table tbody td { font-weight: ${s.boldBody ? 900 : 400}; }
+.departure-table .blank-fill-row td { border-color: transparent !important; }
+${s.etdHighlightEnabled ? '' : '.departure-table .etd-highlight { background: transparent !important; }'}
+${widthCss}
+@media print {
+  table.departure-table, table.departure-table.arrival-table { font-size: ${s.printFontSize}px !important; }
+  .departure-table th, .departure-table td { height: ${s.printRowHeight}px !important; }
+  .sheet-page { padding: ${s.printPagePadding}mm ${s.printPagePadding}mm !important; }
+}`;
+}
+
+function applySettings() {
+  ETD_HIGHLIGHT = appSettings.etdLateTime;
+  PRINT_ROWS_PER_PAGE.departures = appSettings.rowsPerPage;
+  PRINT_ROWS_PER_PAGE.arrivals = appSettings.rowsPerPage;
+  PRINT_ROWS_PER_PAGE.vacant = appSettings.rowsPerPage;
+
+  let styleTag = document.getElementById('settingsStyle');
+  if (!styleTag) {
+    styleTag = document.createElement('style');
+    styleTag.id = 'settingsStyle';
+    document.head.appendChild(styleTag);
+  }
+  styleTag.textContent = buildSettingsCss(appSettings);
+}
+
+function fillSettingsForm() {
+  document.querySelectorAll('#settingsOverlay [data-setting]').forEach(input => {
+    const key = input.dataset.setting;
+    if (!(key in appSettings)) return;
+    if (input.type === 'checkbox') {
+      input.checked = Boolean(appSettings[key]);
+    } else if (SETTING_ZERO_OK_KEYS.includes(key)) {
+      input.value = Number(appSettings[key]) > 0 ? appSettings[key] : '';
+    } else {
+      input.value = appSettings[key];
+    }
+  });
+}
+
+function collectSettingsForm() {
+  const next = { ...appSettings };
+  document.querySelectorAll('#settingsOverlay [data-setting]').forEach(input => {
+    const key = input.dataset.setting;
+    if (!(key in DEFAULT_SETTINGS)) return;
+    if (input.type === 'checkbox') {
+      next[key] = input.checked;
+    } else if (input.type === 'number') {
+      const num = Number(input.value);
+      if (SETTING_ZERO_OK_KEYS.includes(key)) {
+        next[key] = Number.isFinite(num) && num >= 0 ? num : 0;
+      } else if (Number.isFinite(num) && num > 0) {
+        next[key] = num;
+      }
+    } else if (clean(input.value)) {
+      next[key] = input.value.trim();
+    }
+  });
+  return sanitizeSettings(next);
+}
+
+function rerenderAfterSettings() {
+  if (currentMode === MODE_DND) {
+    if (dndResults.length) renderDndOutput();
+    return;
+  }
+  if (currentMode === MODE_LATECOUT) {
+    if (lastWorkbooks.length || lastWorkbook) {
+      try {
+        lateCoutResults = processLateCoutFiles(lastWorkbooks.length ? lastWorkbooks : [{ workbook: lastWorkbook, name: lastFileName }]);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    renderLateCoutOutput();
+    return;
+  }
+  if (originalGroups.size) updateOutput();
+}
+
+function openSettings() {
+  fillSettingsForm();
+  settingsOverlay.hidden = false;
+}
+
+function closeSettings() {
+  settingsOverlay.hidden = true;
+}
+
+function exportSettingsFile() {
+  const blob = new Blob([JSON.stringify(appSettings, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'liste-ayarlar.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function importSettingsFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || '{}'));
+      appSettings = sanitizeSettings(parsed);
+      saveSettingsToStorage();
+      applySettings();
+      fillSettingsForm();
+      rerenderAfterSettings();
+      setStatus('Ayarlar dosyadan yüklendi.', 'ok');
+    } catch (error) {
+      setStatus('Ayar dosyası okunamadı. Geçerli bir JSON dosyası seç.', 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function hexToRgb(value, fallback = 'FFFFFF') {
+  const text = String(value || '').replace('#', '').toUpperCase();
+  return /^[0-9A-F]{6}$/.test(text) ? text : fallback;
+}
+/* ---------- Ayarlar sonu ---------- */
+
 function modeLabel(mode = currentMode) {
   if (mode === MODE_ARRIVALS) return 'Arrivals';
   if (mode === MODE_DND) return 'DND / TİST';
   if (mode === MODE_VACANT) return 'Vacant Rooms';
+  if (mode === MODE_LATECOUT) return 'Late Check Out';
   return 'Departures';
 }
 
@@ -370,6 +632,14 @@ function formatChildAgesValue(value, displayValue = '', childrenCount = null) {
   return '';
 }
 
+// Arrivals için Child Ages: Excel hücresinde görünen metni hiçbir dönüşüm yapmadan aynen göster.
+// displayValue, SheetJS'in hücredeki biçimlendirilmiş görünümüdür; varsa o, yoksa ham değer kullanılır.
+function childAgesDisplayValue(value, displayValue = '') {
+  const display = clean(displayValue);
+  if (display) return display;
+  return clean(value);
+}
+
 
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -612,7 +882,7 @@ function processDndWorkbook(workbook) {
       streak.push({ date, status, real: Boolean(realStatus) });
     }
 
-    if (streak.length >= 2) {
+    if (streak.length >= (appSettings.dndMinDays || 2)) {
       const sortedAsc = streak.slice().sort((a, b) => a.date - b.date);
       const realSortedAsc = sortedAsc.filter(item => item.real || item.status !== 'ÇARŞAMBA');
       const startItem = realSortedAsc[0] || sortedAsc[0];
@@ -681,6 +951,11 @@ function renderDndPreview(results) {
 }
 
 function renderDndSummary(results) {
+  if (!appSettings.showSummary) {
+    summary.hidden = true;
+    summary.innerHTML = '';
+    return;
+  }
   summary.hidden = false;
   const roomCount = new Set(results.map(item => item.room)).size;
   const maxDays = results.reduce((max, item) => Math.max(max, item.days), 0);
@@ -708,6 +983,520 @@ function renderDndOutput(message = '') {
   setButtons({ printable: true, clearable: Boolean(lastWorkbook) });
   setStatus(message || `${lastFileName} DND / TİST olarak işlendi.`, 'ok');
 }
+
+/* ---------- Late Check Out ---------- */
+function flattenGroupsToRecords(groups) {
+  return [...groups.values()].flat();
+}
+
+function parsePaxCount(value) {
+  const num = parseInt(clean(value), 10);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function processLateCoutFiles(workbookItems) {
+  const items = [...(workbookItems || [])].filter(Boolean);
+  if (!items.length) throw new Error('Excel dosyası bulunamadı.');
+
+  let depItem = null;
+  let arrItem = null;
+  items.forEach(item => {
+    const detected = detectWorkbookMode(item.workbook, item.name);
+    if (detected?.mode === MODE_DEPARTURES && !depItem) depItem = item;
+    else if (detected?.mode === MODE_ARRIVALS && !arrItem) arrItem = item;
+  });
+
+  // Algılama başarısızsa dosya adı ipucuna göre tekrar dene.
+  if (!depItem || !arrItem) {
+    items.forEach(item => {
+      const hint = fileNameModeHint(item.name, item.workbook);
+      if (hint?.mode === MODE_DEPARTURES && !depItem) depItem = item;
+      else if (hint?.mode === MODE_ARRIVALS && !arrItem) arrItem = item;
+    });
+  }
+
+  if (!depItem) {
+    throw new Error('Departures dosyası bulunamadı. Late C/Out için Departures ve Arrivals Excel dosyalarını birlikte yükle.');
+  }
+
+  const depRecords = flattenGroupsToRecords(processWorkbook(depItem.workbook, MODE_DEPARTURES));
+  const arrRecords = arrItem ? flattenGroupsToRecords(processWorkbook(arrItem.workbook, MODE_ARRIVALS)) : [];
+
+  // Gelen misafir bilgisi oda numarasına göre eşleştirilir.
+  const arrivalsByRoom = new Map();
+  arrRecords.forEach(record => {
+    const roomKey = normalizeRoomId(record.room);
+    if (!roomKey || arrivalsByRoom.has(roomKey)) return;
+    const adults = parsePaxCount(record.adults);
+    const children = parsePaxCount(record.children);
+    const ages = clean(record.childAges)
+      .split(/[,;.\s]+/)
+      .map(part => parseInt(part, 10))
+      .filter(age => Number.isFinite(age));
+    const hasBaby = ages.some(age => age >= 0 && age <= 3);
+
+    let pax = children > 0 ? `${adults}+${children}` : (adults > 0 ? String(adults) : '');
+    if (pax && hasBaby) pax += '+BEBEK';
+
+    arrivalsByRoom.set(roomKey, { pax, eta: clean(record.eta) });
+  });
+
+  const lateEtds = lateEtdList();
+  const results = depRecords
+    .filter(record => lateEtds.includes(clean(record.etd)))
+    .map(record => {
+      const arrivalInfo = arrivalsByRoom.get(normalizeRoomId(record.room)) || { pax: '', eta: '' };
+      return {
+        room: clean(record.room),
+        checkout: clean(record.etd),
+        pax: arrivalInfo.pax,
+        checkin: arrivalInfo.eta,
+      };
+    });
+
+  results.sort((a, b) => a.checkout.localeCompare(b.checkout) || roomSortValue(a.room) - roomSortValue(b.room));
+
+  // Başlıktaki tarih: Departures kayıtlarındaki en yaygın çıkış günü.
+  const dateCounts = new Map();
+  depRecords.forEach(record => {
+    const dateText = clean(record.departure);
+    if (dateText) dateCounts.set(dateText, (dateCounts.get(dateText) || 0) + 1);
+  });
+  lateCoutDateText = [...dateCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+
+  if (!arrItem) {
+    setStatus('Arrivals dosyası bulunamadı; C/IN Kişi Sayısı ve Check In Saati boş bırakıldı.', 'error');
+  }
+
+  return results;
+}
+
+// Şablonun (latecout-sablon.xlsx) birebir ölçüleri: Excel sütun genişlikleri px'e,
+// satır yükseklikleri pt->px (x4/3) çevrildi. Tasarım bu doğal boyutta çizilir,
+// ekrana ve A4'e transform: scale() ile sığdırılır (zoom Firefox'ta çalışmaz).
+const LATECOUT_GRID = {
+  colA: 43,        // şablondaki boş A sütunu (5.43 birim)
+  spaceRow: 240,   // şablondaki boş 1. satır (180pt)
+  titleRow: 130,   // 2. satır: 97.5pt
+  headerRow: 124,  // 3. satır: 93pt
+  dataRow: 80,     // veri satırları: 60pt
+  templateRows: 20,// şablonda görünür veri satırı: 4..23
+  cols: [83, 181, 199, 294, 166, 337, 445, 357, 137, 455] // B..K sütunları px
+};
+const LATECOUT_TABLE_W = LATECOUT_GRID.cols.reduce((sum, w) => sum + w, 0); // 2654
+const LATECOUT_TITLE_W = LATECOUT_GRID.cols.slice(0, 7).reduce((sum, w) => sum + w, 0);  // B2:H2 = 1705
+const LATECOUT_DATE_W = LATECOUT_TABLE_W - LATECOUT_TITLE_W;                              // I2:K2 = 949
+
+function formatLateCoutDateTitle() {
+  // Başlıkta her zaman bugünün tarihi görünür (GG.AA.YYYY).
+  const today = new Date();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  return `${dd}.${mm}.${today.getFullYear()}`;
+}
+
+function renderLateCoutPreview(results) {
+  preview.classList.remove('empty');
+  preview.classList.remove('preview-arrivals', 'preview-departures', 'preview-dnd', 'preview-vacant');
+  preview.innerHTML = '';
+
+  const page = document.createElement('article');
+  page.className = 'sheet-page latecout-page';
+
+  const supervisor = clean(appSettings.lateCoutSupervisor);
+  const serviceTime = clean(appSettings.lateCoutServiceTime);
+  const serviceTimeText = serviceTime ? `SERVİS SAATİ   ${serviceTime}` : '';
+
+  // Şablonun ızgarası sabit 20 satır (4-23); oda sayısı azsa kalan satırlar boş kalır.
+  const totalRows = Math.max(results.length, LATECOUT_GRID.templateRows);
+
+  let rowsHtml = '';
+  for (let i = 0; i < totalRows; i += 1) {
+    const item = results[i];
+    const sideCells = i === 0
+      ? `<td class="lc-sup-name" rowspan="${totalRows}">${escapeHtml(supervisor)}</td><td class="lc-sup-time" rowspan="${totalRows}">${escapeHtml(serviceTimeText)}</td>`
+      : '';
+    rowsHtml += `<tr>
+      <td>${i + 1}</td>
+      <td>${item ? escapeHtml(item.room) : ''}</td>
+      <td>${item ? escapeHtml(item.checkout) : ''}</td>
+      <td class="lc-pax">${item ? escapeHtml(item.pax) : ''}</td>
+      <td>${item ? escapeHtml(item.checkin) : ''}</td>
+      <td class="lc-maid" colspan="2"></td>
+      <td class="lc-sup"></td>
+      ${sideCells}
+    </tr>`;
+  }
+
+  const titleText = appSettings.showReportTitle ? appSettings.titleLateCout : '';
+  const colsHtml = LATECOUT_GRID.cols.map(w => `<col style="width:${w}px">`).join('');
+  const logoHtml = window.LATECOUT_LOGO_B64
+    ? `<img class="lc-logo" alt="" src="data:image/png;base64,${window.LATECOUT_LOGO_B64}">`
+    : '';
+
+  page.innerHTML = `
+    <div class="lc-scaler">
+      <div class="latecout-natural">
+        <div class="lc-space-row">${logoHtml}</div>
+        <div class="lc-grid">
+          <div class="lc-titlebar">
+            <div class="lc-title">${escapeHtml(titleText)}</div>
+            <div class="lc-date">${escapeHtml(formatLateCoutDateTitle())}</div>
+          </div>
+          <table class="lc-table">
+            <colgroup>${colsHtml}</colgroup>
+            <thead>
+              <tr>
+                <th>SIRA</th>
+                <th>ODA NO</th>
+                <th>CHECK OUT SAATİ</th>
+                <th>C/IN KİŞİ SAYISI</th>
+                <th>CHECK IN SAATI</th>
+                <th colspan="2">GÖREVLİ MAID</th>
+                <th colspan="3">GÖREVLİ KAT ŞEFİ -SUPERVİSOR</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <div class="lc-gap"></div>
+          <div class="lc-blackbar"></div>
+          ${buildLateCoutStaffHtml(colsHtml)}
+        </div>
+      </div>
+    </div>`;
+
+  preview.appendChild(page);
+  applyLateCoutScale(page);
+}
+
+// Şablonun alt bölümü (satır 66-98): siyah ayraç, 17:30 servisi personel ızgarası,
+// geç çıkacak odalar ve izinli personeller. İçeriği şablonda olduğu gibi sabittir.
+function buildLateCoutStaffHtml(colsHtml) {
+  const STAFF_ROWS = 31; // şablon satırları 68-98
+  let bodyRows = '';
+  for (let i = 1; i <= STAFF_ROWS; i += 1) {
+    if (i === 1) {
+      bodyRows += `<tr>
+        <td class="lc-st-num">1</td>
+        <td colspan="3" class="lc-st-name"></td>
+        <td class="lc-st-f"></td>
+        <td class="lc-st-red2">ODA NO</td>
+        <td class="lc-st-red2">ÇIKIŞ SAATI</td>
+        <td colspan="2" class="lc-st-ij"></td>
+        <td class="lc-st-k"></td>
+      </tr>`;
+    } else if (i <= 28) {
+      bodyRows += `<tr>
+        <td class="lc-st-num">${i}</td>
+        <td colspan="3" class="lc-st-name"></td>
+        <td class="lc-st-f"></td>
+        <td class="lc-st-g"></td>
+        <td class="lc-st-h"></td>
+        <td colspan="2" class="lc-st-ij"></td>
+        <td class="lc-st-k"></td>
+      </tr>`;
+    } else if (i === 29) {
+      bodyRows += `<tr>
+        <td class="lc-st-num">29</td>
+        <td colspan="3" class="lc-st-name"></td>
+        <td class="lc-st-f"></td>
+        <td class="lc-st-blank"></td>
+        <td class="lc-st-blank"></td>
+        <td colspan="3" class="lc-st-exec lc-st-exec-top">EXEC HOUSEKEEPER</td>
+      </tr>`;
+    } else if (i === 30) {
+      bodyRows += `<tr>
+        <td class="lc-st-num">30</td>
+        <td colspan="3" class="lc-st-name"></td>
+        <td class="lc-st-f"></td>
+        <td class="lc-st-blank"></td>
+        <td class="lc-st-blank"></td>
+        <td colspan="3" class="lc-st-exec">BAYRAM GÜÇLÜ</td>
+      </tr>`;
+    } else {
+      bodyRows += `<tr>
+        <td class="lc-st-num">31</td>
+        <td colspan="3" class="lc-st-name"></td>
+        <td class="lc-st-f"></td>
+      </tr>`;
+    }
+  }
+  return `<table class="lc-table lc-staff">
+    <colgroup>${colsHtml}</colgroup>
+    <tbody>
+      <tr class="lc-st-head">
+        <td colspan="4" class="lc-st-yellow">SAAT 17:30 SERVİSİ İLE GİDECEK PERSONELLER</td>
+        <td class="lc-st-f"></td>
+        <td colspan="2" class="lc-st-red">GEÇ ÇIKACAK ODALAT</td>
+        <td colspan="2" class="lc-st-amber"></td>
+        <td class="lc-st-yellow2">İZİNLİ PERSONELLER</td>
+      </tr>
+      ${bodyRows}
+    </tbody>
+  </table>`;
+}
+
+// Doğal boyuttaki tasarımı ekran ve yazdırma alanına transform: scale() ile sığdırır.
+function applyLateCoutScale(page) {
+  const scaler = page.querySelector('.lc-scaler');
+  const natural = page.querySelector('.latecout-natural');
+  if (!scaler || !natural) return;
+
+  const nw = natural.offsetWidth;
+  const nh = natural.offsetHeight;
+  if (!nw || !nh) return;
+
+  // Ekran: sayfanın iç genişliğine sığdır
+  const availScreen = Math.max(200, page.clientWidth - 32); // .sheet-page padding 16+16
+  const screenScale = Math.min(1, availScreen / nw);
+  natural.style.transform = `scale(${screenScale})`;
+  scaler.style.width = `${Math.round(nw * screenScale)}px`;
+  scaler.style.height = `${Math.round(nh * screenScale)}px`;
+
+  // Yazdırma: A4 kullanılabilir alana (sayfa dolgusu düşülmüş) sığdır
+  const padMm = clampNumber(parseFloat(appSettings.printPagePadding), 0, 25, 8);
+  const mmToPx = 96 / 25.4;
+  const availW = (210 - padMm * 2) * mmToPx;
+  const availH = (297 - padMm * 2) * mmToPx;
+  const printScale = Math.min(1, availW / nw, availH / nh);
+
+  let printStyle = document.getElementById('latecoutPrintScale');
+  if (!printStyle) {
+    printStyle = document.createElement('style');
+    printStyle.id = 'latecoutPrintScale';
+    document.head.appendChild(printStyle);
+  }
+  printStyle.textContent = `@media print {
+  .latecout-page .latecout-natural { transform: scale(${printScale}) !important; }
+  .latecout-page .lc-scaler { width: ${Math.ceil(nw * printScale)}px !important; height: ${Math.ceil(nh * printScale)}px !important; }
+}`;
+}
+
+function renderLateCoutSummary(results) {
+  if (!appSettings.showSummary) {
+    summary.hidden = true;
+    summary.innerHTML = '';
+    return;
+  }
+  summary.hidden = false;
+  const withArrival = results.filter(item => item.pax || item.checkin).length;
+  const etdCards = lateEtdList().map(etd => {
+    const count = results.filter(item => item.checkout === etd).length;
+    return `<div class="summary-card"><strong>${count}</strong><span>ETD ${escapeHtml(etd)}</span></div>`;
+  }).join('');
+
+  summary.innerHTML = `
+    <div class="summary-card summary-total"><strong>${results.length}</strong><span>Late C/Out oda</span></div>
+    ${etdCards}
+    <div class="summary-card"><strong>${withArrival}</strong><span>C/IN eşleşen oda</span></div>`;
+}
+
+function renderLateCoutOutput(message = '') {
+  assignmentPanel.hidden = true;
+  greenPanel.hidden = true;
+  updateCurrentRoomsPanel();
+  chiefControls.innerHTML = '';
+  assignmentStatus.innerHTML = '';
+  renderLateCoutPreview(lateCoutResults);
+  renderLateCoutSummary(lateCoutResults);
+  setButtons({ printable: lateCoutResults.length > 0, clearable: Boolean(lastWorkbooks.length || lastWorkbook) });
+  if (message) setStatus(message, lateCoutResults.length ? 'ok' : 'error');
+}
+
+function lateCoutExcelFileName() {
+  const now = new Date();
+  const datePart = now.toLocaleDateString('tr-TR').replace(/\./g, '-');
+  return `Late_Check_Out_${datePart}.xlsx`;
+}
+
+/* Şablon xlsx'in içindeki sheet XML'ini doğrudan düzenler.
+   Böylece yazı tipleri, kenarlıklar, dolgular, birleştirmeler ve diğer sayfalar
+   %100 korunur; sadece hedef hücrelerin içeriği değişir. */
+const XLSX_MAIN_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+function xmlCreateCellChild(sheetDoc, tag, text) {
+  const el = sheetDoc.createElementNS(XLSX_MAIN_NS, tag);
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function xmlSetCellText(sheetDoc, ref, text) {
+  const cell = xmlFindCell(sheetDoc, ref);
+  if (!cell) return;
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  if (text !== '') {
+    cell.setAttribute('t', 'inlineStr');
+    const is = xmlCreateCellChild(sheetDoc, 'is');
+    is.appendChild(xmlCreateCellChild(sheetDoc, 't', text));
+    cell.appendChild(is);
+  } else {
+    cell.removeAttribute('t');
+  }
+}
+
+function xmlSetCellDate(sheetDoc, ref, date) {
+  const cell = xmlFindCell(sheetDoc, ref);
+  if (!cell) return;
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  cell.removeAttribute('t');
+  const serial = Math.round((date - new Date(1899, 11, 30)) / 86400000);
+  cell.appendChild(xmlCreateCellChild(sheetDoc, 'v', String(serial)));
+}
+
+function xmlFindCell(sheetDoc, ref) {
+  const cells = sheetDoc.getElementsByTagName('c');
+  for (let i = 0; i < cells.length; i += 1) {
+    if (cells[i].getAttribute('r') === ref) return cells[i];
+  }
+  // Hücre yoksa satırın içine oluştur (şablon satır aralığı dışına taşan ekstra odalar için).
+  const rowMatch = ref.match(/^([A-Z]+)(\d+)$/);
+  if (!rowMatch) return null;
+  const rows = sheetDoc.getElementsByTagName('row');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (rows[i].getAttribute('r') === rowMatch[2]) {
+      const cell = xmlCreateCellChild(sheetDoc, 'c');
+      cell.setAttribute('r', ref);
+      rows[i].appendChild(cell);
+      return cell;
+    }
+  }
+  return null;
+}
+
+// Hazır tasarım şablonunu (latecout-sablon.xlsx) açıp verileri içine yazar.
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function downloadLateCoutExcelFromTemplate() {
+  if (typeof JSZip === 'undefined') throw new Error('JSZip yüklenemedi.');
+  // Şablon önce gömülü kopyadan okunur: dosya file:// ile açıldığında ya da
+  // şablon dosyası sunucuda bulunmadığında fetch düşer ve sade tasarıma geçilirdi.
+  let buffer;
+  if (window.LATECOUT_TEMPLATE_XLSX_B64) {
+    buffer = base64ToArrayBuffer(window.LATECOUT_TEMPLATE_XLSX_B64);
+  } else {
+    const response = await fetch('latecout-sablon.xlsx');
+    if (!response.ok) throw new Error('Şablon dosyası okunamadı.');
+    buffer = await response.arrayBuffer();
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  const parser = new DOMParser();
+
+  // İlk sayfanın XML dosyasını bul.
+  const workbookDoc = parser.parseFromString(await zip.file('xl/workbook.xml').async('text'), 'application/xml');
+  const firstSheetEl = workbookDoc.getElementsByTagName('sheet')[0];
+  const rid = firstSheetEl.getAttribute('r:id') || firstSheetEl.getAttribute('id');
+  const relsDoc = parser.parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('text'), 'application/xml');
+  let sheetPath = 'xl/worksheets/sheet1.xml';
+  const rels = relsDoc.getElementsByTagName('Relationship');
+  for (let i = 0; i < rels.length; i += 1) {
+    if (rels[i].getAttribute('Id') === rid) {
+      sheetPath = `xl/${rels[i].getAttribute('Target').replace(/^\//, '')}`;
+      break;
+    }
+  }
+
+  const sheetDoc = parser.parseFromString(await zip.file(sheetPath).async('text'), 'application/xml');
+
+  // C, D, E, F kolonları: ODA NO, CHECK OUT SAATİ, C/IN KİŞİ SAYISI, CHECK IN SAATI.
+  const DATA_COLS = ['C', 'D', 'E', 'F'];
+  const TEMPLATE_DATA_ROWS = 62; // 4-65 arası şablon veri bölgesi; önce temizle sonra yaz.
+  const rowCount = Math.max(lateCoutResults.length, TEMPLATE_DATA_ROWS);
+  for (let i = 0; i < rowCount; i += 1) {
+    const item = lateCoutResults[i];
+    const values = item
+      ? [item.room, item.checkout, item.pax, item.checkin]
+      : ['', '', '', ''];
+    DATA_COLS.forEach((col, idx) => {
+      xmlSetCellText(sheetDoc, `${col}${4 + i}`, String(values[idx] ?? ''));
+    });
+  }
+
+  // I2 hücresine bugünün tarihi yazılır.
+  xmlSetCellDate(sheetDoc, 'I2', startOfDay(new Date()));
+
+  // J4 (kat şefi) ve K4 (servis saati): ayarlardaki değerleri yaz ki Excel çıktısı
+  // ekrandaki/PDF'teki önizlemeyle birebir aynı olsun.
+  const supervisorText = clean(appSettings.lateCoutSupervisor);
+  const serviceTimeText = clean(appSettings.lateCoutServiceTime);
+  xmlSetCellText(sheetDoc, 'J4', supervisorText ? `${supervisorText} ` : '');
+  xmlSetCellText(sheetDoc, 'K4', serviceTimeText ? `SERVİS SAATİ   ${serviceTimeText}` : '');
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(sheetDoc));
+  const blob = await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+
+  const fileName = lateCoutExcelFileName();
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  setStatus(`${fileName} şablon tasarımıyla indirildi.`, 'ok');
+}
+
+// Şablon okunamazsa (örn. dosya file:// ile açılmışsa) basit tasarımla üretir.
+function downloadLateCoutExcelSimple() {
+  const headers = ['SIRA', 'ODA NO', 'CHECK OUT SAATİ', 'C/IN KİŞİ SAYISI', 'CHECK IN SAATI', 'GÖREVLİ MAID', 'GÖREVLİ KAT ŞEFİ -SUPERVİSOR'];
+  const rows = [
+    [appSettings.titleLateCout, '', '', '', '', '', formatLateCoutDateTitle()],
+    headers,
+    ...lateCoutResults.map((item, index) => [index + 1, item.room, item.checkout, item.pax, item.checkin, '', '']),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [6, 9, 12, 12, 12, 18, 22].map(wch => ({ wch }));
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+  ws['!rows'] = [{ hpt: 24 }, { hpt: 22 }];
+
+  const titleStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 14, border: false });
+  titleStyle.alignment.horizontal = 'left';
+  const headerStyle = excelCellStyle({ fill: hexToRgb(appSettings.headerColor, 'C8755C'), bold: true, size: 10 });
+  const bodyStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 11 });
+  const dateStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 11, border: false });
+
+  ws[cellRef(0, 0)].s = titleStyle;
+  ws[cellRef(0, 6)].s = dateStyle;
+  for (let c = 0; c < headers.length; c += 1) {
+    ws[cellRef(1, c)].s = headerStyle;
+  }
+  lateCoutResults.forEach((item, index) => {
+    const rowIndex = 2 + index;
+    ws['!rows'][rowIndex] = { hpt: appSettings.excelRowHeight > 0 ? appSettings.excelRowHeight : 22 };
+    for (let c = 0; c < headers.length; c += 1) {
+      ws[cellRef(rowIndex, c)].s = bodyStyle;
+    }
+  });
+  ws['!margins'] = { left: 0.25, right: 0.25, top: 0.25, bottom: 0.25, header: 0, footer: 0 };
+  ws['!pageSetup'] = { paperSize: 9, orientation: 'portrait', fitToWidth: 1, fitToHeight: 0 };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'LATE CHECK OUT');
+  const fileName = lateCoutExcelFileName();
+  XLSX.writeFile(wb, fileName, { bookType: 'xlsx', cellStyles: true });
+  setStatus(`${fileName} indirildi.`, 'ok');
+}
+
+async function downloadLateCoutExcel() {
+  if (!lateCoutResults.length) {
+    setStatus('Late C/Out Excel için kayıt bulunamadı.', 'error');
+    return;
+  }
+
+  try {
+    await downloadLateCoutExcelFromTemplate();
+  } catch (error) {
+    console.warn('Şablon ile üretim başarısız, basit tasarıma dönülüyor.', error);
+    downloadLateCoutExcelSimple();
+  }
+}
+/* ---------- Late Check Out sonu ---------- */
 
 function findHeaderRow(rows, fields = requiredFields()) {
   let best = { index: 0, score: -1 };
@@ -1181,7 +1970,9 @@ function rowToRecord(row, map, displayRow = [], mode = currentMode) {
     arrival: formatDateValue(row[map.arrival]),
     adults: clean(row[map.adults]),
     children,
-    childAges: formatChildAgesValue(row[map.childAges], displayRow[map.childAges], children),
+    childAges: mode === MODE_ARRIVALS
+      ? childAgesDisplayValue(row[map.childAges], displayRow[map.childAges])
+      : formatChildAgesValue(row[map.childAges], displayRow[map.childAges], children),
     departure: formatDateValue(row[map.departure]),
     etd: formatTimeValue(row[map.etd]),
     name: clean(row[map.name]),
@@ -1435,9 +2226,9 @@ function printedRowsPerPage() {
 function reportTitleForGroup(groupName) {
   if (groupName === 'Ofis') return '';
   const numeric = String(groupName || '').match(/\d+/)?.[0] || String(groupName || '').replace(/ler$/i, '');
-  if (currentMode === MODE_DEPARTURES) return 'Check Out List';
-  if (currentMode === MODE_ARRIVALS) return 'Check In List';
-  if (currentMode === MODE_VACANT) return 'Vacant List';
+  if (currentMode === MODE_DEPARTURES) return appSettings.titleDepartures;
+  if (currentMode === MODE_ARRIVALS) return appSettings.titleArrivals;
+  if (currentMode === MODE_VACANT) return appSettings.titleVacant;
   return String(groupName || '');
 }
 
@@ -1457,7 +2248,7 @@ function renderPage(records, groupName, options = {}) {
   page.dataset.group = groupName;
 
   const rowsHtml = records.map(({ record, rowNumber }) => {
-    const etdClass = currentMode === MODE_DEPARTURES && record.etd === ETD_HIGHLIGHT ? 'etd-highlight' : '';
+    const etdClass = currentMode === MODE_DEPARTURES && appSettings.etdHighlightEnabled && record.etd === ETD_HIGHLIGHT ? 'etd-highlight' : '';
     const roomClass = `room${isGreenRoom(record) ? ' room-green' : ''}`;
 
     if (isVacant) {
@@ -1578,7 +2369,7 @@ function renderPage(records, groupName, options = {}) {
   const officeHeader = groupName === 'Ofis'
     ? `<tr class="office-head-row"><th colspan="${columnCount}">OFİS</th></tr>`
     : '';
-  const reportTitle = reportTitleForGroup(groupName);
+  const reportTitle = appSettings.showReportTitle ? reportTitleForGroup(groupName) : '';
   const titleHtml = reportTitle ? `<div class="report-title">${escapeHtml(reportTitle)}</div>` : '';
 
   page.innerHTML = `
@@ -1623,11 +2414,16 @@ function renderPrintablePreview(groups) {
     // Az kayıt varsa kalan alan boş tablo satırlarıyla doldurulur; sonraki grup aynı sayfaya girmez.
     const rowsPerPage = printedRowsPerPage();
     const pages = splitNumberedRecordsForPrint(numbered);
-    pages.forEach(pageRecords => renderPage(pageRecords, groupName, { padToRows: rowsPerPage }));
+    pages.forEach(pageRecords => renderPage(pageRecords, groupName, { padToRows: appSettings.fillBlankRows ? rowsPerPage : 0 }));
   });
 }
 
 function renderSummary(groups) {
+  if (!appSettings.showSummary) {
+    summary.hidden = true;
+    summary.innerHTML = '';
+    return;
+  }
   summary.hidden = false;
   const groupEntries = [...groups.entries()];
   const totalRows = groupEntries.reduce((sum, [, rows]) => sum + rows.length, 0);
@@ -1646,8 +2442,8 @@ function renderSummary(groups) {
 function setButtons({ printable = false, clearable = false } = {}) {
   printBtn.disabled = !printable;
   excelBtn.disabled = !printable;
-  officeBtn.disabled = !clearable || currentMode === MODE_DND;
-  officeExcelBtn.disabled = !clearable || currentMode === MODE_DND;
+  officeBtn.disabled = !clearable || currentMode === MODE_DND || currentMode === MODE_LATECOUT;
+  officeExcelBtn.disabled = !clearable || currentMode === MODE_DND || currentMode === MODE_LATECOUT;
   clearBtn.disabled = !clearable;
   greenRoomsInput.disabled = !clearable || currentMode !== MODE_ARRIVALS;
   if (currentRoomsInput) currentRoomsInput.disabled = currentMode !== MODE_DND;
@@ -1801,6 +2597,17 @@ function processCurrentWorkbook(message = '') {
       return;
     }
 
+    if (currentMode === MODE_LATECOUT) {
+      dndResults = [];
+      const itemsToProcess = lastWorkbooks.length ? lastWorkbooks : [{ workbook: lastWorkbook, name: lastFileName }];
+      lateCoutResults = processLateCoutFiles(itemsToProcess);
+      originalGroups = new Map([['Late Check Out', lateCoutResults]]);
+      printableGroups = new Map();
+      resetAssignmentsForNewData();
+      renderLateCoutOutput(message || `${lastFileName} Late Check Out olarak işlendi.`);
+      return;
+    }
+
     dndResults = [];
     const workbooksToProcess = lastWorkbooks.length ? lastWorkbooks : [{ workbook: lastWorkbook, name: lastFileName }];
     originalGroups = mergeWorkbookGroups(workbooksToProcess, currentMode);
@@ -1829,7 +2636,10 @@ async function readWorkbookFile(file) {
   // DND / TİST formlarında tarih başlıklarını Date objesine çevirmek bazı
   // tarayıcı/saat dilimlerinde 1 gün geri kaydırabiliyor. Bu yüzden DND'de
   // Excel seri numarasını ham bırakıp parseMatrixDate içinde güvenli çeviriyoruz.
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: currentMode !== MODE_DND });
+  // raw: true -> HTML tabanlı .xls dosyalarında SheetJS'in "6, 9, 12" gibi
+  // Child Ages metinlerini otomatik tarihe çevirmesini engeller.
+  // Gerçek .xlsx dosyalarında bu seçenek etkisizdir, hücre tipleri dosyadan gelir.
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: currentMode !== MODE_DND, raw: true });
   return { name: file.name, workbook };
 }
 
@@ -1852,7 +2662,7 @@ async function handleFiles(files) {
 
     for (const file of fileList) {
       const item = currentMode === MODE_VACANT ? await readVacantPdfFile(file) : await readWorkbookFile(file);
-      if (currentMode !== MODE_VACANT) {
+      if (currentMode !== MODE_VACANT && currentMode !== MODE_LATECOUT) {
         const warning = wrongFileWarning(item.workbook, item.name, currentMode);
         if (warning) {
           fileInput.value = '';
@@ -1895,7 +2705,7 @@ async function handleCurrentRoomFiles(files) {
 
     for (const file of fileList) {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, raw: true });
       const fileMap = extractCurrentRoomMapFromWorkbook(workbook, file.name);
       fileMap.forEach(item => {
         mergeCurrentRoomRecord(merged, item.room, item.arrivalDate, file.name);
@@ -1931,7 +2741,9 @@ function emptyPreviewHtml() {
     ? 'İlk satırı tarih, ilk sütunu oda numarası olan DND / TİST Excel dosyasını yükle.'
     : currentMode === MODE_VACANT
       ? 'Vacant Rooms PDF dosyasını yükle. Oda listesi 1000ler / 2000ler gibi parçalanır.'
-      : `${modeLabel()} Excel dosyasını yükle. Kolon isimleri örnekteki gibi olmalı.`;
+      : currentMode === MODE_LATECOUT
+        ? 'Departures ve Arrivals Excel dosyalarını birlikte seç (Ctrl ile iki dosya). ETD\'si late listesinde olan odalar tabloya yazılır.'
+        : `${modeLabel()} Excel dosyasını yükle. Kolon isimleri örnekteki gibi olmalı.`;
   return `<div class="empty-state no-print"><h2>PDF önizlemesi burada görünecek</h2><p>${helper}</p></div>`;
 }
 
@@ -1948,6 +2760,8 @@ function clearAll() {
   currentRoomFilter = new Map();
   currentRoomFileNames = [];
   dndResults = [];
+  lateCoutResults = [];
+  lateCoutDateText = '';
   dndDateWindowText = '';
   dndFilterStats = { active: false, currentRooms: 0, skippedOldRooms: 0, stoppedBeforeArrival: 0 };
   greenRoomsInput.value = '';
@@ -1972,23 +2786,34 @@ function updateModeUi() {
   arrivalsModeBtn.classList.toggle('active', currentMode === MODE_ARRIVALS);
   dndModeBtn.classList.toggle('active', currentMode === MODE_DND);
   vacantModeBtn?.classList.toggle('active', currentMode === MODE_VACANT);
+  lateCoutModeBtn?.classList.toggle('active', currentMode === MODE_LATECOUT);
   departuresModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DEPARTURES));
   arrivalsModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_ARRIVALS));
   dndModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DND));
   vacantModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_VACANT));
+  lateCoutModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_LATECOUT));
   document.body.classList.toggle('mode-arrivals', currentMode === MODE_ARRIVALS);
   document.body.classList.toggle('mode-departures', currentMode === MODE_DEPARTURES);
   document.body.classList.toggle('mode-dnd', currentMode === MODE_DND);
   document.body.classList.toggle('mode-vacant', currentMode === MODE_VACANT);
+  document.body.classList.toggle('mode-latecout', currentMode === MODE_LATECOUT);
   greenPanel.hidden = currentMode !== MODE_ARRIVALS || !originalGroups.size;
   greenRoomsInput.disabled = currentMode !== MODE_ARRIVALS || !originalGroups.size;
   if (fileInput) {
     fileInput.multiple = currentMode !== MODE_DND;
     fileInput.accept = currentMode === MODE_VACANT ? '.pdf' : '.xlsx,.xls,.csv';
   }
-  if (uploadTitle) uploadTitle.textContent = currentMode === MODE_VACANT ? 'Vacant PDF Yükle' : (currentMode === MODE_DND ? 'Excel Yükle' : 'Excel Yükle / Birden Fazla Seç');
+  if (uploadTitle) {
+    uploadTitle.textContent = currentMode === MODE_VACANT
+      ? 'Vacant PDF Yükle'
+      : currentMode === MODE_DND
+        ? 'Excel Yükle'
+        : currentMode === MODE_LATECOUT
+          ? 'Departures + Arrivals Birlikte Yükle'
+          : 'Excel Yükle / Birden Fazla Seç';
+  }
   updateCurrentRoomsPanel();
-  if (currentMode === MODE_DND) {
+  if (currentMode === MODE_DND || currentMode === MODE_LATECOUT) {
     assignmentPanel.hidden = true;
     greenPanel.hidden = true;
   }
@@ -2010,7 +2835,7 @@ function hasLoadedMainFile() {
 }
 
 function switchModeAndMaybeClear(mode) {
-  if (![MODE_DEPARTURES, MODE_ARRIVALS, MODE_DND, MODE_VACANT].includes(mode)) return;
+  if (![MODE_DEPARTURES, MODE_ARRIVALS, MODE_DND, MODE_VACANT, MODE_LATECOUT].includes(mode)) return;
   if (mode === currentMode) return;
 
   const previousMode = currentMode;
@@ -2159,7 +2984,7 @@ function excelCellStyle({ fill = 'FFFFFF', bold = true, size = 10, align = 'cent
     fill: { patternType: 'solid', fgColor: { rgb: fill } },
     font: { name: 'Arial', bold, sz: size, color: { rgb: fontColor } },
     alignment: { horizontal: align, vertical: valign, wrapText: true },
-    border: border ? excelBorder() : undefined,
+    border: border ? excelBorder(hexToRgb(appSettings.borderColor, '555555')) : undefined,
   };
 }
 
@@ -2216,15 +3041,15 @@ function excelColumnWidths(isArrivals, isVacant = false) {
 function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant = false) {
   const headers = excelHeaders(isArrivals, isVacant);
   const columnCount = headers.length;
-  const headerFill = isVacant ? '4B5563' : (isArrivals ? '79A9D4' : 'C8755C');
+  const headerFill = isVacant ? '4B5563' : (isArrivals ? hexToRgb(appSettings.arrivalsHeaderColor, '79A9D4') : hexToRgb(appSettings.headerColor, 'C8755C'));
   const headerStyle = excelCellStyle({ fill: headerFill, bold: true, size: 10 });
   const bodyStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 10 });
   const notesStyle = excelCellStyle({ fill: 'FFFFFF', bold: false, size: 10, align: 'left' });
   const smallTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 9 });
   const compactArrivalTextStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
   const largerArrivalStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 12 });
-  const etdHighlightStyle = excelCellStyle({ fill: 'FFF176', bold: true, size: 10 });
-  const roomGreenStyle = excelCellStyle({ fill: 'B8D8BD', bold: true, size: isArrivals ? 12 : 10 });
+  const etdHighlightStyle = excelCellStyle({ fill: hexToRgb(appSettings.etdColor, 'FFF176'), bold: true, size: 10 });
+  const roomGreenStyle = excelCellStyle({ fill: hexToRgb(appSettings.greenColor, 'B8D8BD'), bold: true, size: isArrivals ? 12 : 10 });
   const vacantSmallStyle = excelCellStyle({ fill: 'FFFFFF', bold: true, size: 8 });
 
   ws['!cols'] = excelColumnWidths(isArrivals, isVacant);
@@ -2254,7 +3079,7 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant 
 
   records.forEach((record, index) => {
     const rowIndex = startRow + 1 + index;
-    ws['!rows'][rowIndex] = { hpt: isArrivals ? 32 : (isVacant ? 30 : 26) };
+    ws['!rows'][rowIndex] = { hpt: appSettings.excelRowHeight > 0 ? appSettings.excelRowHeight : (isArrivals ? 32 : (isVacant ? 30 : 26)) };
 
     for (let c = 0; c < columnCount; c += 1) {
       const ref = cellRef(rowIndex, c);
@@ -2284,7 +3109,7 @@ function styleExcelSheet(ws, records, groupName, isArrivals, startRow, isVacant 
       if (c === 1 && isGreenRoom(record)) {
         cell.s = roomGreenStyle;
       }
-      if (!isArrivals && !isVacant && c === 8 && record.etd === ETD_HIGHLIGHT) {
+      if (!isArrivals && !isVacant && c === 8 && appSettings.etdHighlightEnabled && record.etd === ETD_HIGHLIGHT) {
         cell.s = etdHighlightStyle;
       }
 
@@ -2348,6 +3173,11 @@ function exportCurrentExcel() {
 
   if (currentMode === MODE_DND) {
     downloadDndExcel();
+    return;
+  }
+
+  if (currentMode === MODE_LATECOUT) {
+    downloadLateCoutExcel();
     return;
   }
 
@@ -2499,12 +3329,43 @@ departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
 dndModeBtn.addEventListener('click', () => setMode(MODE_DND));
 vacantModeBtn?.addEventListener('click', () => setMode(MODE_VACANT));
+lateCoutModeBtn?.addEventListener('click', () => setMode(MODE_LATECOUT));
 officeBtn.addEventListener('click', printOfficeDirect);
 officeExcelBtn.addEventListener('click', exportOfficeExcelDirect);
 excelBtn.addEventListener('click', exportCurrentExcel);
-printBtn.addEventListener('click', () => printCleanPdf({ printTitle: modeLabel(), skipAssignmentCheck: currentMode === MODE_DND }));
+printBtn.addEventListener('click', () => printCleanPdf({ printTitle: modeLabel(), skipAssignmentCheck: currentMode === MODE_DND || currentMode === MODE_LATECOUT }));
 clearBtn.addEventListener('click', clearAll);
 
+settingsBtn?.addEventListener('click', openSettings);
+settingsCloseBtn?.addEventListener('click', closeSettings);
+settingsOverlay?.addEventListener('click', event => {
+  if (event.target === settingsOverlay) closeSettings();
+});
+settingsSaveBtn?.addEventListener('click', () => {
+  appSettings = collectSettingsForm();
+  saveSettingsToStorage();
+  applySettings();
+  closeSettings();
+  rerenderAfterSettings();
+  setStatus('Ayarlar kaydedildi ve uygulandı.', 'ok');
+});
+settingsResetBtn?.addEventListener('click', () => {
+  appSettings = { ...DEFAULT_SETTINGS };
+  saveSettingsToStorage();
+  applySettings();
+  fillSettingsForm();
+  rerenderAfterSettings();
+  setStatus('Ayarlar varsayılanlara döndürüldü.', 'ok');
+});
+settingsExportBtn?.addEventListener('click', exportSettingsFile);
+settingsImportBtn?.addEventListener('click', () => settingsImportInput?.click());
+settingsImportInput?.addEventListener('change', event => {
+  importSettingsFile(event.target.files?.[0]);
+  event.target.value = '';
+});
+
+loadSettings();
+applySettings();
 updateModeUi();
 setButtons({ printable: false, clearable: false });
 showApp();
