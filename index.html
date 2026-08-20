@@ -3,37 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Departures</title>
+  <title>Arrivals</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
-<body class="mode-departures">
+<body class="mode-arrivals">
   <main id="appShell" class="app-shell">
     <section class="panel no-print">
       <div class="top-toolbar">
         <div class="mode-menu" role="tablist" aria-label="Liste türü seçimi">
-          <button id="departuresModeBtn" class="mode-btn active" type="button" aria-pressed="true">Departures</button>
-          <button id="arrivalsModeBtn" class="mode-btn" type="button" aria-pressed="false">Arrivals</button>
-          <button id="dndModeBtn" class="mode-btn" type="button" aria-pressed="false">DND / TİST</button>
-          <button id="vacantModeBtn" class="mode-btn" type="button" aria-pressed="false">Vacant</button>
-          <button id="lateCoutModeBtn" class="mode-btn" type="button" aria-pressed="false">Late C/Out</button>
+          <button id="arrivalsModeBtn" class="mode-btn active" type="button" aria-pressed="true">Arrivals</button>
+          <button id="departuresModeBtn" class="mode-btn" type="button" aria-pressed="false">Departures</button>
         </div>
       </div>
-      <h1 id="appTitle" class="app-title">Departures</h1>
+      <h1 id="appTitle" class="app-title">Arrivals</h1>
       <div class="upload-card compact" id="dropZone">
-        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.pdf" multiple aria-label="Dosya seç" />
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="Dosya seç" />
         <div class="upload-icon">⬆</div>
         <strong id="uploadTitle">Excel Yükle</strong>
       </div>
 
-      <div id="currentRoomsPanel" class="current-rooms-panel" hidden>
-        <label for="currentRoomsInput">Güncel oda listesi</label>
-        <input id="currentRoomsInput" type="file" accept=".xlsx,.xls,.csv" multiple disabled />
-        <small>Birden fazla güncel oda Excel'i yükleyebilirsin. DND / TİST hesabında oda bu listede yoksa sayılmaz; Arrival tarihi varsa o tarihten öncesi eski oda verisi kabul edilir.</small>
-        <div id="currentRoomsStatus" class="current-rooms-status">Güncel oda listesi yüklenmedi.</div>
-      </div>
+
 
       <div id="greenPanel" class="green-panel" hidden>
         <label for="greenRoomsInput">Yeşil odalar</label>
@@ -63,7 +53,7 @@
     <section id="preview" class="preview empty">
       <div class="empty-state no-print">
         <h2>PDF önizlemesi burada görünecek</h2>
-        <p>Liste türünü seçip Excel/PDF dosyasını yükle.</p>
+        <p>Arrivals veya Departures seçip Excel dosyasını yükle.</p>
       </div>
     </section>
   </main>
@@ -116,18 +106,12 @@
         <label class="settings-check"><input type="checkbox" data-setting="showReportTitle"> Rapor başlığını göster</label>
         <label class="settings-check"><input type="checkbox" data-setting="fillBlankRows"> Boş satırlarla sayfayı doldur</label>
         <label class="settings-check"><input type="checkbox" data-setting="showSummary"> Özet kartlarını göster</label>
-        <label>DND en az gün <input type="number" min="2" max="10" step="1" data-setting="dndMinDays"></label>
-        <label>Late C/Out ETD listesi <input type="text" data-setting="lateEtdList" placeholder="17:00, 18:00"></label>
-        <label>Late C/Out kat şefi adı <input type="text" data-setting="lateCoutSupervisor" placeholder="örn. RECEP KESKİN"></label>
-        <label>Late C/Out servis saati <input type="text" data-setting="lateCoutServiceTime" placeholder="18:30"></label>
         <label>Excel satır yüksekliği (0 = auto) <input type="number" min="0" max="60" step="1" data-setting="excelRowHeight" placeholder="0"></label>
       </div>
       <div class="settings-section">Başlıklar</div>
       <div class="settings-grid">
         <label>Departures başlığı <input type="text" data-setting="titleDepartures"></label>
         <label>Arrivals başlığı <input type="text" data-setting="titleArrivals"></label>
-        <label>Vacant başlığı <input type="text" data-setting="titleVacant"></label>
-        <label>Late C/Out başlığı <input type="text" data-setting="titleLateCout"></label>
       </div>
       <div class="settings-actions">
         <button id="settingsSaveBtn" type="button">Kaydet</button>
@@ -140,7 +124,6 @@
     </div>
   </div>
 
-  <script src="latecout-template.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -54,7 +54,7 @@ const PRINT_ROWS_PER_PAGE = {
 const CHIEF_GROUPS = ['1000ler', '2000ler', '3000ler', '4000ler', '5000ler'];
 const LEAVE_ELIGIBLE_GROUPS = CHIEF_GROUPS.filter(group => group !== '5000ler');
 
-let currentMode = MODE_DEPARTURES;
+let currentMode = MODE_ARRIVALS;
 let originalGroups = new Map();
 let printableGroups = new Map();
 let leaveGroups = new Set();
@@ -2784,12 +2784,12 @@ function updateModeUi() {
   document.title = modeLabel();
   departuresModeBtn.classList.toggle('active', currentMode === MODE_DEPARTURES);
   arrivalsModeBtn.classList.toggle('active', currentMode === MODE_ARRIVALS);
-  dndModeBtn.classList.toggle('active', currentMode === MODE_DND);
+  dndModeBtn?.classList.toggle('active', currentMode === MODE_DND);
   vacantModeBtn?.classList.toggle('active', currentMode === MODE_VACANT);
   lateCoutModeBtn?.classList.toggle('active', currentMode === MODE_LATECOUT);
   departuresModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DEPARTURES));
   arrivalsModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_ARRIVALS));
-  dndModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DND));
+  dndModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_DND));
   vacantModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_VACANT));
   lateCoutModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_LATECOUT));
   document.body.classList.toggle('mode-arrivals', currentMode === MODE_ARRIVALS);
@@ -2835,7 +2835,7 @@ function hasLoadedMainFile() {
 }
 
 function switchModeAndMaybeClear(mode) {
-  if (![MODE_DEPARTURES, MODE_ARRIVALS, MODE_DND, MODE_VACANT, MODE_LATECOUT].includes(mode)) return;
+  if (![MODE_DEPARTURES, MODE_ARRIVALS].includes(mode)) return;
   if (mode === currentMode) return;
 
   const previousMode = currentMode;
@@ -3327,7 +3327,7 @@ startDndBtn?.addEventListener('click', () => selectModeFromMenu(MODE_DND));
 backMenuBtn?.addEventListener('click', showStartMenu);
 departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
-dndModeBtn.addEventListener('click', () => setMode(MODE_DND));
+dndModeBtn?.addEventListener('click', () => setMode(MODE_DND));
 vacantModeBtn?.addEventListener('click', () => setMode(MODE_VACANT));
 lateCoutModeBtn?.addEventListener('click', () => setMode(MODE_LATECOUT));
 officeBtn.addEventListener('click', printOfficeDirect);
