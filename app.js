@@ -26,6 +26,8 @@ const vacantModeBtn = document.getElementById('vacantModeBtn');
 const lateCoutModeBtn = document.getElementById('lateCoutModeBtn');
 const greenPanel = document.getElementById('greenPanel');
 const greenRoomsInput = document.getElementById('greenRoomsInput');
+const vacantRoomsPdfInput = document.getElementById('vacantRoomsPdfInput');
+const vacantRoomsStatus = document.getElementById('vacantRoomsStatus');
 const currentRoomsPanel = document.getElementById('currentRoomsPanel');
 const currentRoomsInput = document.getElementById('currentRoomsInput');
 const currentRoomsStatus = document.getElementById('currentRoomsStatus');
@@ -63,6 +65,7 @@ let lastFileName = '';
 let lastWorkbook = null;
 let lastWorkbooks = [];
 let greenRooms = new Set();
+let vacantRoomsFileName = '';
 let currentRoomFilter = new Map(); // room -> { room, arrivalDate, source }
 let currentRoomFileNames = [];
 let dndResults = [];
@@ -1944,6 +1947,92 @@ async function readVacantPdfFile(file) {
   return { name: file.name, records, type: MODE_VACANT };
 }
 
+
+function isVacantCleanRecord(record) {
+  const roomType = canonical(record?.roomType || '');
+  return roomType.split(/\s+/).includes('vac');
+}
+
+function sortedGreenRoomList() {
+  return [...greenRooms].sort((a, b) => roomSortValue(a) - roomSortValue(b));
+}
+
+function arrivalsGreenMatchCount() {
+  if (currentMode !== MODE_ARRIVALS || !originalGroups.size || !greenRooms.size) return 0;
+  return allOriginalRecords().filter(record => isGreenRoom(record)).length;
+}
+
+function updateVacantRoomsStatus({ error = '' } = {}) {
+  if (!vacantRoomsStatus) return;
+
+  if (error) {
+    vacantRoomsStatus.textContent = error;
+    vacantRoomsStatus.className = 'vacant-rooms-status error';
+    return;
+  }
+
+  if (!greenRooms.size) {
+    vacantRoomsStatus.textContent = 'Vacant Rooms PDF yükle; Room Type = VAC olan odalar otomatik bulunur.';
+    vacantRoomsStatus.className = 'vacant-rooms-status';
+    return;
+  }
+
+  const matchCount = arrivalsGreenMatchCount();
+  const source = vacantRoomsFileName ? `${vacantRoomsFileName}: ` : '';
+  vacantRoomsStatus.textContent = `${source}${greenRooms.size} VAC oda bulundu. Arrivals listesinde ${matchCount} oda temiz olarak eşleşti.`;
+  vacantRoomsStatus.className = 'vacant-rooms-status ok';
+}
+
+async function handleArrivalsVacantPdf(file) {
+  if (!file) return;
+  if (currentMode !== MODE_ARRIVALS) {
+    updateVacantRoomsStatus({ error: 'Temiz oda PDF yalnızca Arrivals bölümünde kullanılır.' });
+    return;
+  }
+
+  try {
+    if (vacantRoomsPdfInput) vacantRoomsPdfInput.disabled = true;
+    if (vacantRoomsStatus) {
+      vacantRoomsStatus.textContent = `${file.name} okunuyor...`;
+      vacantRoomsStatus.className = 'vacant-rooms-status loading';
+    }
+
+    const item = await readVacantPdfFile(file);
+    const vacRooms = item.records
+      .filter(isVacantCleanRecord)
+      .map(record => normalizeRoomId(record.room))
+      .filter(Boolean);
+
+    const uniqueRooms = new Set(vacRooms);
+    if (!uniqueRooms.size) {
+      throw new Error('Vacant Rooms PDF içinde Room Type = VAC olan oda bulunamadı.');
+    }
+
+    greenRooms = uniqueRooms;
+    vacantRoomsFileName = item.name;
+    if (greenRoomsInput) greenRoomsInput.value = sortedGreenRoomList().join(', ');
+
+    if (originalGroups.size) {
+      updateOutput(`${item.name}: ${greenRooms.size} VAC oda alındı; Arrivals temiz odaları yeşil işaretlendi.`);
+    } else {
+      updateVacantRoomsStatus();
+      setStatus(`${item.name}: ${greenRooms.size} VAC oda hazır. Şimdi Arrivals Excel dosyasını yükle.`, 'ok');
+    }
+  } catch (error) {
+    console.error(error);
+    greenRooms = new Set();
+    vacantRoomsFileName = '';
+    if (greenRoomsInput) greenRoomsInput.value = '';
+    updateVacantRoomsStatus({ error: error.message || 'Vacant Rooms PDF okunamadı.' });
+    setStatus(error.message || 'Vacant Rooms PDF okunamadı.', 'error');
+  } finally {
+    if (vacantRoomsPdfInput) {
+      vacantRoomsPdfInput.disabled = currentMode !== MODE_ARRIVALS || !originalGroups.size;
+      vacantRoomsPdfInput.value = '';
+    }
+  }
+}
+
 function mergeVacantRecordItems(items) {
   const allRecords = [];
   items.forEach(item => {
@@ -2429,6 +2518,10 @@ function renderSummary(groups) {
   const totalRows = groupEntries.reduce((sum, [, rows]) => sum + rows.length, 0);
   const totalLate = groupEntries.reduce((sum, [, rows]) => sum + countLate(rows), 0);
   const lateTotalHtml = currentMode === MODE_DEPARTURES ? `<small>Total Late: ${totalLate}</small>` : '';
+  const cleanTotal = currentMode === MODE_ARRIVALS ? groupEntries.reduce((sum, [, rows]) => sum + rows.filter(isGreenRoom).length, 0) : 0;
+  const cleanCard = currentMode === MODE_ARRIVALS && greenRooms.size
+    ? `<div class="summary-card summary-clean"><strong>${cleanTotal}</strong><span>Temiz / VAC</span><small>Vacant PDF ile eşleşen</small></div>`
+    : '';
   const totalCard = `<div class="summary-card summary-total"><strong>${totalRows}</strong><span>Toplam</span>${lateTotalHtml}</div>`;
   const groupCards = groupEntries
     .map(([name, rows]) => {
@@ -2436,7 +2529,7 @@ function renderSummary(groups) {
       return `<div class="summary-card"><strong>${rows.length}</strong><span>${escapeHtml(name)}</span>${lateHtml}</div>`;
     })
     .join('');
-  summary.innerHTML = `${totalCard}${groupCards}`;
+  summary.innerHTML = `${totalCard}${cleanCard}${groupCards}`;
 }
 
 function setButtons({ printable = false, clearable = false } = {}) {
@@ -2446,6 +2539,7 @@ function setButtons({ printable = false, clearable = false } = {}) {
   officeExcelBtn.disabled = !clearable || currentMode === MODE_DND || currentMode === MODE_LATECOUT;
   clearBtn.disabled = !clearable;
   greenRoomsInput.disabled = !clearable || currentMode !== MODE_ARRIVALS;
+  if (vacantRoomsPdfInput) vacantRoomsPdfInput.disabled = !clearable || currentMode !== MODE_ARRIVALS;
   if (currentRoomsInput) currentRoomsInput.disabled = currentMode !== MODE_DND;
 }
 
@@ -2546,6 +2640,7 @@ function renderAssignmentControls(currentGroups = new Map()) {
 
 function updateOutput(message) {
   updateGreenRooms();
+  updateVacantRoomsStatus();
   const { groups, unassigned } = buildPrintableGroups();
   renderAssignmentControls(groups);
   renderPrintablePreview(groups);
@@ -2757,6 +2852,7 @@ function clearAll() {
   lastWorkbook = null;
   lastWorkbooks = [];
   greenRooms = new Set();
+  vacantRoomsFileName = '';
   currentRoomFilter = new Map();
   currentRoomFileNames = [];
   dndResults = [];
@@ -2765,6 +2861,8 @@ function clearAll() {
   dndDateWindowText = '';
   dndFilterStats = { active: false, currentRooms: 0, skippedOldRooms: 0, stoppedBeforeArrival: 0 };
   greenRoomsInput.value = '';
+  if (vacantRoomsPdfInput) vacantRoomsPdfInput.value = '';
+  updateVacantRoomsStatus();
   if (currentRoomsInput) currentRoomsInput.value = '';
   preview.className = 'preview empty';
   preview.innerHTML = emptyPreviewHtml();
@@ -2799,6 +2897,7 @@ function updateModeUi() {
   document.body.classList.toggle('mode-latecout', currentMode === MODE_LATECOUT);
   greenPanel.hidden = currentMode !== MODE_ARRIVALS || !originalGroups.size;
   greenRoomsInput.disabled = currentMode !== MODE_ARRIVALS || !originalGroups.size;
+  if (vacantRoomsPdfInput) vacantRoomsPdfInput.disabled = currentMode !== MODE_ARRIVALS || !originalGroups.size;
   if (fileInput) {
     fileInput.multiple = currentMode !== MODE_DND;
     fileInput.accept = currentMode === MODE_VACANT ? '.pdf' : '.xlsx,.xls,.csv';
@@ -2869,6 +2968,11 @@ function setMode(mode) {
 fileInput.addEventListener('change', event => {
   const files = event.target.files;
   if (files?.length) handleFiles(files);
+});
+
+vacantRoomsPdfInput?.addEventListener('change', event => {
+  const file = event.target.files?.[0];
+  if (file) handleArrivalsVacantPdf(file);
 });
 
 currentRoomsInput?.addEventListener('change', event => {

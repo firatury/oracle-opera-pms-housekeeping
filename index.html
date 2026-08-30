@@ -6,6 +6,7 @@
   <title>Arrivals</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 </head>
 <body class="mode-arrivals">
   <main id="appShell" class="app-shell">
@@ -26,9 +27,14 @@
 
 
       <div id="greenPanel" class="green-panel" hidden>
-        <label for="greenRoomsInput">Yeşil odalar</label>
-        <input id="greenRoomsInput" type="text" placeholder="Örn: 1008, 1120, 2207" disabled />
-        <small>Buraya yazılan oda numaraları PDF'de yeşile boyanır.</small>
+        <label for="vacantRoomsPdfInput">Temiz odalar</label>
+        <div class="vacant-upload-row">
+          <input id="vacantRoomsPdfInput" class="vacant-file-input" type="file" accept=".pdf,application/pdf" disabled />
+          <span id="vacantRoomsStatus" class="vacant-rooms-status">Vacant Rooms PDF yükle; Room Type = VAC olan odalar otomatik bulunur.</span>
+        </div>
+        <label for="greenRoomsInput">Bulunan VAC odaları</label>
+        <input id="greenRoomsInput" type="text" placeholder="Vacant PDF'den otomatik doldurulur" readonly disabled />
+        <small>VAC olan odalar Arrivals listesinde temiz oda olarak yeşil işaretlenir.</small>
       </div>
 
       <section id="assignmentPanel" class="assignment-panel compact" hidden>
