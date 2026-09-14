@@ -40,6 +40,10 @@ const settingsImportBtn = document.getElementById('settingsImportBtn');
 const settingsImportInput = document.getElementById('settingsImportInput');
 const settingsResetBtn = document.getElementById('settingsResetBtn');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+const downloadsAutoPanel = document.getElementById('downloadsAutoPanel');
+const downloadsAutoStatus = document.getElementById('downloadsAutoStatus');
+const downloadsConnectBtn = document.getElementById('downloadsConnectBtn');
+const downloadsRefreshBtn = document.getElementById('downloadsRefreshBtn');
 
 const MODE_DEPARTURES = 'departures';
 const MODE_ARRIVALS = 'arrivals';
@@ -73,6 +77,20 @@ let lateCoutResults = [];
 let lateCoutDateText = '';
 let dndDateWindowText = '';
 let dndFilterStats = { active: false, currentRooms: 0, skippedOldRooms: 0, stoppedBeforeArrival: 0 };
+
+/* ---------- İndirilenler klasörü otomatik yükleme ---------- */
+const DOWNLOADS_DB_NAME = 'operaDownloadsFolderV1';
+const DOWNLOADS_DB_STORE = 'handles';
+const DOWNLOADS_HANDLE_KEY = 'downloadsDirectory';
+const DOWNLOADS_SCAN_INTERVAL_MS = 15000;
+let downloadsDirectoryHandle = null;
+let downloadsLastSignature = '';
+let downloadsScanBusy = false;
+let downloadsAutoLoadBusy = false;
+let downloadsScanTimer = null;
+const AUTO_FILES_PER_TYPE = 3;
+let autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
+
 
 const FIELD_DEFS = [
   { key: 'room', out: 'Room', aliases: ['room', 'oda', 'oda no', 'room no', 'room number'] },
@@ -1944,7 +1962,7 @@ async function readVacantPdfFile(file) {
 
   if (!records.length) throw new Error('Vacant Rooms PDF içinde oda satırı bulunamadı.');
   records.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
-  return { name: file.name, records, type: MODE_VACANT };
+  return { name: file.name, records, type: MODE_VACANT, lastModified: Number(file.lastModified || 0), size: Number(file.size || 0) };
 }
 
 
@@ -1983,8 +2001,9 @@ function updateVacantRoomsStatus({ error = '' } = {}) {
   vacantRoomsStatus.className = 'vacant-rooms-status ok';
 }
 
-async function handleArrivalsVacantPdf(file) {
-  if (!file) return;
+async function handleArrivalsVacantPdfs(files) {
+  const fileList = [...(files || [])].filter(Boolean);
+  if (!fileList.length) return;
   if (currentMode !== MODE_ARRIVALS) {
     updateVacantRoomsStatus({ error: 'Temiz oda PDF yalnızca Arrivals bölümünde kullanılır.' });
     return;
@@ -1993,30 +2012,37 @@ async function handleArrivalsVacantPdf(file) {
   try {
     if (vacantRoomsPdfInput) vacantRoomsPdfInput.disabled = true;
     if (vacantRoomsStatus) {
-      vacantRoomsStatus.textContent = `${file.name} okunuyor...`;
+      vacantRoomsStatus.textContent = fileList.length === 1 ? `${fileList[0].name} okunuyor...` : `${fileList.length} Vacant PDF okunuyor...`;
       vacantRoomsStatus.className = 'vacant-rooms-status loading';
     }
 
-    const item = await readVacantPdfFile(file);
-    const vacRooms = item.records
-      .filter(isVacantCleanRecord)
-      .map(record => normalizeRoomId(record.room))
-      .filter(Boolean);
-
-    const uniqueRooms = new Set(vacRooms);
-    if (!uniqueRooms.size) {
-      throw new Error('Vacant Rooms PDF içinde Room Type = VAC olan oda bulunamadı.');
+    const uniqueRooms = new Set();
+    const usedNames = [];
+    for (const file of fileList) {
+      try {
+        const item = await readVacantPdfFile(file);
+        item.records
+          .filter(isVacantCleanRecord)
+          .map(record => normalizeRoomId(record.room))
+          .filter(Boolean)
+          .forEach(room => uniqueRooms.add(room));
+        usedNames.push(item.name);
+      } catch (error) {
+        console.warn('Vacant PDF atlandı:', file.name, error);
+      }
     }
 
+    if (!uniqueRooms.size) throw new Error('Vacant Rooms PDF dosyalarında Room Type = VAC olan oda bulunamadı.');
+
     greenRooms = uniqueRooms;
-    vacantRoomsFileName = item.name;
+    vacantRoomsFileName = usedNames.length <= 1 ? (usedNames[0] || '') : `${usedNames.length} Vacant PDF`;
     if (greenRoomsInput) greenRoomsInput.value = sortedGreenRoomList().join(', ');
 
     if (originalGroups.size) {
-      updateOutput(`${item.name}: ${greenRooms.size} VAC oda alındı; Arrivals temiz odaları yeşil işaretlendi.`);
+      updateOutput(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC oda alındı; Arrivals temiz odaları yeşil işaretlendi.`);
     } else {
       updateVacantRoomsStatus();
-      setStatus(`${item.name}: ${greenRooms.size} VAC oda hazır. Şimdi Arrivals Excel dosyasını yükle.`, 'ok');
+      setStatus(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC oda hazır. Şimdi Arrivals Excel dosyasını yükle.`, 'ok');
     }
   } catch (error) {
     console.error(error);
@@ -2033,11 +2059,21 @@ async function handleArrivalsVacantPdf(file) {
   }
 }
 
+async function handleArrivalsVacantPdf(file) {
+  return handleArrivalsVacantPdfs([file]);
+}
+
 function mergeVacantRecordItems(items) {
-  const allRecords = [];
-  items.forEach(item => {
-    (item.records || []).forEach(record => allRecords.push(record));
+  const sortedItems = [...(items || [])].filter(Boolean)
+    .sort((a, b) => Number(b?.lastModified || 0) - Number(a?.lastModified || 0));
+  const byRoom = new Map();
+  sortedItems.forEach(item => {
+    (item.records || []).forEach(record => {
+      const key = normalizeRoomId(record.room);
+      if (key && !byRoom.has(key)) byRoom.set(key, record);
+    });
   });
+  const allRecords = [...byRoom.values()];
   if (!allRecords.length) throw new Error('Vacant Rooms PDF içinde oda satırı bulunamadı.');
   allRecords.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
   const groups = new Map();
@@ -2079,16 +2115,22 @@ function formatLoadedFileNames(filesOrItems = []) {
 }
 
 function mergeWorkbookGroups(workbookItems, mode = currentMode) {
-  const items = [...(workbookItems || [])].filter(Boolean);
+  const items = [...(workbookItems || [])].filter(Boolean)
+    .sort((a, b) => Number(b?.lastModified || 0) - Number(a?.lastModified || 0));
   if (!items.length) throw new Error('Excel dosyası bulunamadı.');
 
-  const allRecords = [];
+  // Aynı oda birden fazla parça/raporda varsa en yeni dosyadaki kayıt korunur.
+  const byRoom = new Map();
   items.forEach(item => {
     const workbook = item.workbook || item;
     const groups = processWorkbook(workbook, mode);
-    groups.forEach(records => allRecords.push(...records));
+    groups.forEach(records => records.forEach(record => {
+      const key = normalizeRoomId(record.room);
+      if (key && !byRoom.has(key)) byRoom.set(key, record);
+    }));
   });
 
+  const allRecords = [...byRoom.values()];
   if (!allRecords.length) throw new Error('Oda numarası olan satır bulunamadı.');
 
   allRecords.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
@@ -2392,9 +2434,10 @@ function renderPage(records, groupName, options = {}) {
     </tr>`;
   }).join('');
 
-  const emptyRowsHtml = groupName === 'Ofis'
-    ? ''
-    : blankTableRows(Math.max(0, padToRows - records.length), columnCount);
+  const emptyRowsHtml = blankTableRows(
+    Math.max(0, padToRows - records.length),
+    columnCount,
+  );
 
   const colgroup = isVacant
     ? `<colgroup>
@@ -2491,11 +2534,15 @@ function renderPrintablePreview(groups) {
   groups.forEach((records, groupName) => {
     const numbered = records.map((record, index) => ({ record, rowNumber: index + 1 }));
 
-    // Ofis çıktısı tek tablo olarak bırakılır. Böylece uzun Arrivals listelerinde
-    // tarayıcı sayfaları doğal böler; 28-33 gibi az satırlı ara sayfalar ve büyük
-    // boşluklar oluşmaz. Normal kat şefi çıktıları ise ayrı sayfalara bölünmeye devam eder.
+    // Arrivals ve Departures Ofis çıktısı da sayfa başına satır ayarına uyar.
+    // Varsayılan değer 38'dir; Ayarlar > Sayfa başına satır değiştirilirse Ofis de onu kullanır.
+    // Son sayfa, "Boş satırlarla sayfayı doldur" açıksa aynı satır sayısına tamamlanır.
     if (groupName === 'Ofis') {
-      renderPage(numbered, groupName);
+      const rowsPerPage = printedRowsPerPage();
+      const pages = splitNumberedRecordsForPrint(numbered);
+      pages.forEach(pageRecords => renderPage(pageRecords, groupName, {
+        padToRows: appSettings.fillBlankRows ? rowsPerPage : 0,
+      }));
       return;
     }
 
@@ -2735,8 +2782,307 @@ async function readWorkbookFile(file) {
   // Child Ages metinlerini otomatik tarihe çevirmesini engeller.
   // Gerçek .xlsx dosyalarında bu seçenek etkisizdir, hücre tipleri dosyadan gelir.
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: currentMode !== MODE_DND, raw: true });
-  return { name: file.name, workbook };
+  return { name: file.name, workbook, lastModified: Number(file.lastModified || 0), size: Number(file.size || 0) };
 }
+
+function setDownloadsAutoStatus(message, type = '') {
+  if (!downloadsAutoStatus) return;
+  downloadsAutoStatus.textContent = message;
+  downloadsAutoStatus.className = type;
+}
+
+function supportsDownloadsFolderAccess() {
+  return typeof window.showDirectoryPicker === 'function' && 'indexedDB' in window;
+}
+
+function openDownloadsDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DOWNLOADS_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(DOWNLOADS_DB_STORE)) db.createObjectStore(DOWNLOADS_DB_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveDownloadsDirectoryHandle(handle) {
+  const db = await openDownloadsDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(DOWNLOADS_DB_STORE, 'readwrite');
+    tx.objectStore(DOWNLOADS_DB_STORE).put(handle, DOWNLOADS_HANDLE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function restoreDownloadsDirectoryHandle() {
+  const db = await openDownloadsDb();
+  const handle = await new Promise((resolve, reject) => {
+    const tx = db.transaction(DOWNLOADS_DB_STORE, 'readonly');
+    const request = tx.objectStore(DOWNLOADS_DB_STORE).get(DOWNLOADS_HANDLE_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return handle;
+}
+
+async function directoryHasReadPermission(handle, requestIfNeeded = false) {
+  if (!handle) return false;
+  const opts = { mode: 'read' };
+  if (typeof handle.queryPermission === 'function') {
+    const state = await handle.queryPermission(opts);
+    if (state === 'granted') return true;
+  }
+  if (requestIfNeeded && typeof handle.requestPermission === 'function') {
+    return (await handle.requestPermission(opts)) === 'granted';
+  }
+  return false;
+}
+
+function autoFileLabel(item) {
+  return item?.file?.name || '—';
+}
+
+function autoFilesLabel(items = []) {
+  const list = [...items].filter(Boolean);
+  if (!list.length) return '—';
+  if (list.length === 1) return autoFileLabel(list[0]);
+  return `${list.length} dosya: ${list.map(autoFileLabel).join(', ')}`;
+}
+
+function updateDownloadsButtons() {
+  if (downloadsRefreshBtn) downloadsRefreshBtn.disabled = !downloadsDirectoryHandle || downloadsScanBusy;
+  if (downloadsConnectBtn) downloadsConnectBtn.disabled = downloadsScanBusy;
+}
+
+function downloadsSummaryText() {
+  const parts = [];
+  if (autoDownloadFiles.arrivals.length) parts.push(`Arrivals: ${autoFilesLabel(autoDownloadFiles.arrivals)}`);
+  if (autoDownloadFiles.departures.length) parts.push(`Departures: ${autoFilesLabel(autoDownloadFiles.departures)}`);
+  if (autoDownloadFiles.vacant.length) parts.push(`Temiz odalar: ${autoFilesLabel(autoDownloadFiles.vacant)}`);
+  return parts.length ? parts.join(' • ') : 'Uygun Arrivals, Departures veya Vacant dosyası bulunamadı.';
+}
+
+function addAutoFile(key, file) {
+  if (!file || !autoDownloadFiles[key]) return;
+  const item = { file, lastModified: Number(file.lastModified || 0), size: Number(file.size || 0) };
+  const fingerprint = `${file.name}::${item.lastModified}::${item.size}`;
+  if (autoDownloadFiles[key].some(existing => `${existing.file.name}::${existing.lastModified}::${existing.size}` === fingerprint)) return;
+  autoDownloadFiles[key].push(item);
+  autoDownloadFiles[key].sort((a, b) => b.lastModified - a.lastModified);
+  autoDownloadFiles[key] = autoDownloadFiles[key].slice(0, AUTO_FILES_PER_TYPE);
+}
+
+async function readWorkbookForAutoDetection(file) {
+  const buffer = await file.arrayBuffer();
+  return XLSX.read(buffer, { type: 'array', cellDates: true, raw: true });
+}
+
+async function buildDownloadsSignature(handle) {
+  const entries = [];
+  for await (const entry of handle.values()) {
+    if (entry.kind !== 'file') continue;
+    const name = entry.name || '';
+    if (!/\.(xlsx|xls|csv|pdf)$/i.test(name)) continue;
+    try {
+      const file = await entry.getFile();
+      entries.push(`${file.name}:${file.lastModified}:${file.size}`);
+    } catch (error) {
+      console.warn('Dosya bilgisi okunamadı:', name, error);
+    }
+  }
+  return entries.sort().join('|');
+}
+
+async function collectDownloadsCandidates(handle) {
+  const files = [];
+  for await (const entry of handle.values()) {
+    if (entry.kind !== 'file') continue;
+    if (!/\.(xlsx|xls|csv|pdf)$/i.test(entry.name || '')) continue;
+    try {
+      files.push(await entry.getFile());
+    } catch (error) {
+      console.warn('İndirilenler dosyası açılamadı:', entry.name, error);
+    }
+  }
+  files.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
+  return files;
+}
+
+async function classifyDownloadsFiles(files) {
+  autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
+  const ambiguousExcels = [];
+  const ambiguousPdfs = [];
+
+  for (const file of files) {
+    if (/\.pdf$/i.test(file.name)) {
+      const hint = fileNameModeHint(file.name);
+      if (hint?.mode === MODE_VACANT) addAutoFile('vacant', file);
+      else ambiguousPdfs.push(file);
+      continue;
+    }
+
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) continue;
+    const hint = fileNameModeHint(file.name);
+    if (hint?.mode === MODE_ARRIVALS) addAutoFile('arrivals', file);
+    else if (hint?.mode === MODE_DEPARTURES) addAutoFile('departures', file);
+    else ambiguousExcels.push(file);
+  }
+
+  // Dosya adı yeterli değilse en yeni Excel'lerin içeriğini incele ve tür başına en fazla 3 dosya tut.
+  for (const file of ambiguousExcels.slice(0, 15)) {
+    if (autoDownloadFiles.arrivals.length >= AUTO_FILES_PER_TYPE && autoDownloadFiles.departures.length >= AUTO_FILES_PER_TYPE) break;
+    try {
+      const workbook = await readWorkbookForAutoDetection(file);
+      const detected = detectWorkbookMode(workbook, file.name);
+      if (detected?.mode === MODE_ARRIVALS && detected.confidence >= 0.7) addAutoFile('arrivals', file);
+      if (detected?.mode === MODE_DEPARTURES && detected.confidence >= 0.7) addAutoFile('departures', file);
+    } catch (error) {
+      console.warn('Excel otomatik sınıflandırılamadı:', file.name, error);
+    }
+  }
+
+  // Vacant adı yoksa en yeni PDF'lerde VAC oda satırı ara; tür başına en fazla 3 PDF al.
+  if (autoDownloadFiles.vacant.length < AUTO_FILES_PER_TYPE) {
+    for (const file of ambiguousPdfs.slice(0, 8)) {
+      if (autoDownloadFiles.vacant.length >= AUTO_FILES_PER_TYPE) break;
+      try {
+        const item = await readVacantPdfFile(file);
+        if (item.records.some(isVacantCleanRecord)) addAutoFile('vacant', file);
+      } catch (error) {
+        // Bu PDF Vacant raporu değilse sessizce sonraki PDF'e geç.
+      }
+    }
+  }
+}
+
+async function applyAutoDownloadsForCurrentMode({ silentMissing = false } = {}) {
+  if (downloadsAutoLoadBusy) return;
+  if (![MODE_ARRIVALS, MODE_DEPARTURES].includes(currentMode)) return;
+
+  const mainItems = currentMode === MODE_ARRIVALS ? autoDownloadFiles.arrivals : autoDownloadFiles.departures;
+  if (!mainItems.length) {
+    if (!silentMissing) setDownloadsAutoStatus(`${modeLabel()} için uygun Excel bulunamadı. ${downloadsSummaryText()}`, 'error');
+    return;
+  }
+
+  downloadsAutoLoadBusy = true;
+  try {
+    await handleFiles(mainItems.map(item => item.file));
+    if (currentMode === MODE_ARRIVALS && autoDownloadFiles.vacant.length) {
+      await handleArrivalsVacantPdfs(autoDownloadFiles.vacant.map(item => item.file));
+    }
+    setDownloadsAutoStatus(`Otomatik bağlı • ${downloadsSummaryText()}`, 'ok');
+  } catch (error) {
+    console.error(error);
+    setDownloadsAutoStatus(error.message || 'İndirilenler dosyaları otomatik yüklenemedi.', 'error');
+  } finally {
+    downloadsAutoLoadBusy = false;
+  }
+}
+
+async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
+  if (!downloadsDirectoryHandle || downloadsScanBusy) return;
+  const allowed = await directoryHasReadPermission(downloadsDirectoryHandle, false);
+  if (!allowed) {
+    setDownloadsAutoStatus('İndirilenler klasörü kayıtlı, fakat okuma izni gerekiyor. Bağla düğmesine bas.', 'error');
+    updateDownloadsButtons();
+    return;
+  }
+
+  downloadsScanBusy = true;
+  updateDownloadsButtons();
+  try {
+    const signature = await buildDownloadsSignature(downloadsDirectoryHandle);
+    if (!force && signature === downloadsLastSignature) return;
+    downloadsLastSignature = signature;
+    setDownloadsAutoStatus('İndirilenler taranıyor…', 'loading');
+    const files = await collectDownloadsCandidates(downloadsDirectoryHandle);
+    await classifyDownloadsFiles(files);
+    setDownloadsAutoStatus(`Otomatik bağlı • ${downloadsSummaryText()}`, 'ok');
+    if (autoApply) await applyAutoDownloadsForCurrentMode({ silentMissing: true });
+  } catch (error) {
+    console.error(error);
+    setDownloadsAutoStatus(error.message || 'İndirilenler klasörü taranamadı.', 'error');
+  } finally {
+    downloadsScanBusy = false;
+    updateDownloadsButtons();
+  }
+}
+
+function startDownloadsAutoScanTimer() {
+  if (downloadsScanTimer) clearInterval(downloadsScanTimer);
+  downloadsScanTimer = setInterval(() => {
+    scanDownloadsFolder({ force: false, autoApply: true }).catch(console.error);
+  }, DOWNLOADS_SCAN_INTERVAL_MS);
+}
+
+async function connectDownloadsFolder() {
+  if (!supportsDownloadsFolderAccess()) {
+    setDownloadsAutoStatus('Bu özellik masaüstü Chrome/Edge üzerinde HTTPS veya localhost ile çalışır.', 'error');
+    return;
+  }
+
+  try {
+    let handle = downloadsDirectoryHandle;
+    if (handle) {
+      const granted = await directoryHasReadPermission(handle, true);
+      if (!granted) handle = null;
+    }
+
+    if (!handle) {
+      handle = await window.showDirectoryPicker({ id: 'opera-downloads', mode: 'read', startIn: 'downloads' });
+      const granted = await directoryHasReadPermission(handle, true);
+      if (!granted) throw new Error('Klasör okuma izni verilmedi.');
+    }
+
+    downloadsDirectoryHandle = handle;
+    await saveDownloadsDirectoryHandle(handle);
+    downloadsLastSignature = '';
+    updateDownloadsButtons();
+    await scanDownloadsFolder({ force: true, autoApply: true });
+    startDownloadsAutoScanTimer();
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      setDownloadsAutoStatus('Klasör seçimi iptal edildi.', '');
+      return;
+    }
+    console.error(error);
+    setDownloadsAutoStatus(error.message || 'İndirilenler klasörü bağlanamadı.', 'error');
+  }
+}
+
+async function initDownloadsAutomation() {
+  if (!supportsDownloadsFolderAccess()) {
+    if (downloadsAutoPanel) downloadsAutoPanel.hidden = false;
+    setDownloadsAutoStatus('Otomatik klasör okuma için masaüstü Chrome/Edge ve HTTPS/localhost gerekir.', 'error');
+    return;
+  }
+
+  try {
+    downloadsDirectoryHandle = await restoreDownloadsDirectoryHandle();
+    updateDownloadsButtons();
+    if (!downloadsDirectoryHandle) return;
+
+    const allowed = await directoryHasReadPermission(downloadsDirectoryHandle, false);
+    if (!allowed) {
+      setDownloadsAutoStatus('İndirilenler klasörü hatırlandı. Erişimi etkinleştirmek için Bağla düğmesine bir kez bas.', '');
+      return;
+    }
+
+    await scanDownloadsFolder({ force: true, autoApply: true });
+    startDownloadsAutoScanTimer();
+  } catch (error) {
+    console.warn('İndirilenler otomatik başlatılamadı:', error);
+    setDownloadsAutoStatus('Klasör bağlantısı yeniden kurulmalı. Bağla düğmesine bas.', 'error');
+  }
+}
+
+/* ---------- İndirilenler klasörü otomatik yükleme sonu ---------- */
 
 async function handleFiles(files) {
   const fileList = [...files].filter(Boolean);
@@ -2949,6 +3295,10 @@ function switchModeAndMaybeClear(mode) {
   } else {
     preview.innerHTML = emptyPreviewHtml();
     setStatus(`${modeLabel()} seçildi. ${mode === MODE_VACANT ? 'PDF' : 'Excel'} dosyası yükle.`);
+  }
+
+  if (downloadsDirectoryHandle) {
+    setTimeout(() => applyAutoDownloadsForCurrentMode({ silentMissing: true }), 0);
   }
 }
 
@@ -3421,6 +3771,9 @@ function printOfficeDirect() {
   });
 }
 
+downloadsConnectBtn?.addEventListener('click', connectDownloadsFolder);
+downloadsRefreshBtn?.addEventListener('click', () => scanDownloadsFolder({ force: true, autoApply: true }));
+
 greenRoomsInput.addEventListener('input', () => {
   if (originalGroups.size) updateOutput();
 });
@@ -3473,3 +3826,4 @@ applySettings();
 updateModeUi();
 setButtons({ printable: false, clearable: false });
 showApp();
+initDownloadsAutomation();

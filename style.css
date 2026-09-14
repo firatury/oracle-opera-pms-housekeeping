@@ -502,6 +502,18 @@ table.departure-table {
     overflow: visible !important;
   }
 
+  /* Parçalı çıktıda tam 297mm yükseklik + page-break bazı tarayıcılarda
+     araya boş A4 ekleyebiliyor. 38 satırlık tablo zaten A4'e sığdığı için
+     yüksekliği içerik belirlesin; sayfa geçişini sadece break-after yönetsin. */
+  .sheet-page.auto-fill-page {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    page-break-inside: avoid;
+    break-inside: avoid-page;
+  }
+
   /* Her grup ayrı A4 sayfada kalır. Son sayfada kalan alan boş satırlarla doldurulur. */
   .sheet-page:last-child { page-break-after: auto; break-after: auto; }
   table.departure-table { font-size: 11px; }
@@ -1506,4 +1518,68 @@ table.lc-table {
 .mode-latecout .mode-btn.active {
   background: #6d5ba8;
   box-shadow: 0 8px 18px rgba(109, 91, 168, .18);
+}
+
+
+/* İndirilenler klasöründen otomatik dosya alma */
+.downloads-auto-panel {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #ded4cc;
+  border-radius: 15px;
+  background: #fbf8f5;
+}
+
+.downloads-auto-copy {
+  min-width: 0;
+}
+
+.downloads-auto-copy strong,
+.downloads-auto-copy span {
+  display: block;
+}
+
+.downloads-auto-copy strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.downloads-auto-copy span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.downloads-auto-copy span.ok { color: #2e6d2e; }
+.downloads-auto-copy span.error { color: #a12b2b; }
+.downloads-auto-copy span.loading { color: #7a5d22; }
+
+.downloads-auto-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.downloads-auto-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .downloads-auto-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .downloads-auto-actions { width: 100%; }
+  .downloads-auto-actions button { flex: 1 1 0; }
+}
+
+@media print {
+  .downloads-auto-panel { display: none !important; }
 }
