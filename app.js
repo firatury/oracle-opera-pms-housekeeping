@@ -83,12 +83,12 @@ const DOWNLOADS_DB_NAME = 'operaDownloadsFolderV1';
 const DOWNLOADS_DB_STORE = 'handles';
 const DOWNLOADS_HANDLE_KEY = 'downloadsDirectory';
 const DOWNLOADS_SCAN_INTERVAL_MS = 15000;
+const AUTO_FILES_PER_TYPE = 3;
 let downloadsDirectoryHandle = null;
 let downloadsLastSignature = '';
 let downloadsScanBusy = false;
 let downloadsAutoLoadBusy = false;
 let downloadsScanTimer = null;
-const AUTO_FILES_PER_TYPE = 3;
 let autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
 
 
@@ -2535,8 +2535,7 @@ function renderPrintablePreview(groups) {
     const numbered = records.map((record, index) => ({ record, rowNumber: index + 1 }));
 
     // Arrivals ve Departures Ofis çıktısı da sayfa başına satır ayarına uyar.
-    // Varsayılan değer 38'dir; Ayarlar > Sayfa başına satır değiştirilirse Ofis de onu kullanır.
-    // Son sayfa, "Boş satırlarla sayfayı doldur" açıksa aynı satır sayısına tamamlanır.
+    // Varsayılan 38 satırdır; son sayfa gerekirse boş satırlarla tamamlanır.
     if (groupName === 'Ofis') {
       const rowsPerPage = printedRowsPerPage();
       const pages = splitNumberedRecordsForPrint(numbered);
@@ -2573,7 +2572,11 @@ function renderSummary(groups) {
   const groupCards = groupEntries
     .map(([name, rows]) => {
       const lateHtml = currentMode === MODE_DEPARTURES ? `<small>Total Late: ${countLate(rows)}</small>` : '';
-      return `<div class="summary-card"><strong>${rows.length}</strong><span>${escapeHtml(name)}</span>${lateHtml}</div>`;
+      const cleanCount = currentMode === MODE_ARRIVALS ? rows.filter(isGreenRoom).length : 0;
+      const cleanHtml = currentMode === MODE_ARRIVALS
+        ? `<small class="group-clean-count">Total Temiz: ${cleanCount}</small>`
+        : '';
+      return `<div class="summary-card"><strong>${rows.length}</strong><span>${escapeHtml(name)}</span>${cleanHtml}${lateHtml}</div>`;
     })
     .join('');
   summary.innerHTML = `${totalCard}${cleanCard}${groupCards}`;
@@ -2625,6 +2628,7 @@ function renderAssignmentControls(currentGroups = new Map()) {
     const canBeLeave = LEAVE_ELIGIBLE_GROUPS.includes(groupName);
     const displayRecords = isLeave ? originalRecords : (currentGroups.get(groupName) || []);
     const displayCount = displayRecords.length;
+    const cleanCount = currentMode === MODE_ARRIVALS ? displayRecords.filter(isGreenRoom).length : 0;
     const originalCount = originalRecords.length;
     const disabled = originalCount === 0;
     const selectableSections = sections.filter(section => section.sourceGroup !== groupName);
@@ -2666,6 +2670,7 @@ function renderAssignmentControls(currentGroups = new Map()) {
           <div>
             <strong>${escapeHtml(groupName)}</strong>
             <span>${displayCount} oda</span>
+            ${currentMode === MODE_ARRIVALS ? `<span class="clean-count-inline">Total Temiz: ${cleanCount}</span>` : ''}
             ${formatLateInline(displayRecords)}
           </div>
           ${leaveToggleHtml}
@@ -2843,22 +2848,17 @@ async function directoryHasReadPermission(handle, requestIfNeeded = false) {
   return false;
 }
 
-function autoFileLabel(item) {
-  return item?.file?.name || '—';
-}
-
+function autoFileLabel(item) { return item?.file?.name || '—'; }
 function autoFilesLabel(items = []) {
   const list = [...items].filter(Boolean);
   if (!list.length) return '—';
   if (list.length === 1) return autoFileLabel(list[0]);
   return `${list.length} dosya: ${list.map(autoFileLabel).join(', ')}`;
 }
-
 function updateDownloadsButtons() {
   if (downloadsRefreshBtn) downloadsRefreshBtn.disabled = !downloadsDirectoryHandle || downloadsScanBusy;
   if (downloadsConnectBtn) downloadsConnectBtn.disabled = downloadsScanBusy;
 }
-
 function downloadsSummaryText() {
   const parts = [];
   if (autoDownloadFiles.arrivals.length) parts.push(`Arrivals: ${autoFilesLabel(autoDownloadFiles.arrivals)}`);
@@ -2866,7 +2866,6 @@ function downloadsSummaryText() {
   if (autoDownloadFiles.vacant.length) parts.push(`Temiz odalar: ${autoFilesLabel(autoDownloadFiles.vacant)}`);
   return parts.length ? parts.join(' • ') : 'Uygun Arrivals, Departures veya Vacant dosyası bulunamadı.';
 }
-
 function addAutoFile(key, file) {
   if (!file || !autoDownloadFiles[key]) return;
   const item = { file, lastModified: Number(file.lastModified || 0), size: Number(file.size || 0) };
@@ -2891,9 +2890,7 @@ async function buildDownloadsSignature(handle) {
     try {
       const file = await entry.getFile();
       entries.push(`${file.name}:${file.lastModified}:${file.size}`);
-    } catch (error) {
-      console.warn('Dosya bilgisi okunamadı:', name, error);
-    }
+    } catch (error) { console.warn('Dosya bilgisi okunamadı:', name, error); }
   }
   return entries.sort().join('|');
 }
@@ -2903,11 +2900,8 @@ async function collectDownloadsCandidates(handle) {
   for await (const entry of handle.values()) {
     if (entry.kind !== 'file') continue;
     if (!/\.(xlsx|xls|csv|pdf)$/i.test(entry.name || '')) continue;
-    try {
-      files.push(await entry.getFile());
-    } catch (error) {
-      console.warn('İndirilenler dosyası açılamadı:', entry.name, error);
-    }
+    try { files.push(await entry.getFile()); }
+    catch (error) { console.warn('İndirilenler dosyası açılamadı:', entry.name, error); }
   }
   files.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
   return files;
@@ -2925,7 +2919,6 @@ async function classifyDownloadsFiles(files) {
       else ambiguousPdfs.push(file);
       continue;
     }
-
     if (!/\.(xlsx|xls|csv)$/i.test(file.name)) continue;
     const hint = fileNameModeHint(file.name);
     if (hint?.mode === MODE_ARRIVALS) addAutoFile('arrivals', file);
@@ -2933,7 +2926,6 @@ async function classifyDownloadsFiles(files) {
     else ambiguousExcels.push(file);
   }
 
-  // Dosya adı yeterli değilse en yeni Excel'lerin içeriğini incele ve tür başına en fazla 3 dosya tut.
   for (const file of ambiguousExcels.slice(0, 15)) {
     if (autoDownloadFiles.arrivals.length >= AUTO_FILES_PER_TYPE && autoDownloadFiles.departures.length >= AUTO_FILES_PER_TYPE) break;
     try {
@@ -2941,21 +2933,16 @@ async function classifyDownloadsFiles(files) {
       const detected = detectWorkbookMode(workbook, file.name);
       if (detected?.mode === MODE_ARRIVALS && detected.confidence >= 0.7) addAutoFile('arrivals', file);
       if (detected?.mode === MODE_DEPARTURES && detected.confidence >= 0.7) addAutoFile('departures', file);
-    } catch (error) {
-      console.warn('Excel otomatik sınıflandırılamadı:', file.name, error);
-    }
+    } catch (error) { console.warn('Excel otomatik sınıflandırılamadı:', file.name, error); }
   }
 
-  // Vacant adı yoksa en yeni PDF'lerde VAC oda satırı ara; tür başına en fazla 3 PDF al.
   if (autoDownloadFiles.vacant.length < AUTO_FILES_PER_TYPE) {
     for (const file of ambiguousPdfs.slice(0, 8)) {
       if (autoDownloadFiles.vacant.length >= AUTO_FILES_PER_TYPE) break;
       try {
         const item = await readVacantPdfFile(file);
         if (item.records.some(isVacantCleanRecord)) addAutoFile('vacant', file);
-      } catch (error) {
-        // Bu PDF Vacant raporu değilse sessizce sonraki PDF'e geç.
-      }
+      } catch (error) { /* Vacant değil; geç. */ }
     }
   }
 }
@@ -2963,13 +2950,11 @@ async function classifyDownloadsFiles(files) {
 async function applyAutoDownloadsForCurrentMode({ silentMissing = false } = {}) {
   if (downloadsAutoLoadBusy) return;
   if (![MODE_ARRIVALS, MODE_DEPARTURES].includes(currentMode)) return;
-
   const mainItems = currentMode === MODE_ARRIVALS ? autoDownloadFiles.arrivals : autoDownloadFiles.departures;
   if (!mainItems.length) {
     if (!silentMissing) setDownloadsAutoStatus(`${modeLabel()} için uygun Excel bulunamadı. ${downloadsSummaryText()}`, 'error');
     return;
   }
-
   downloadsAutoLoadBusy = true;
   try {
     await handleFiles(mainItems.map(item => item.file));
@@ -2980,9 +2965,7 @@ async function applyAutoDownloadsForCurrentMode({ silentMissing = false } = {}) 
   } catch (error) {
     console.error(error);
     setDownloadsAutoStatus(error.message || 'İndirilenler dosyaları otomatik yüklenemedi.', 'error');
-  } finally {
-    downloadsAutoLoadBusy = false;
-  }
+  } finally { downloadsAutoLoadBusy = false; }
 }
 
 async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
@@ -2993,7 +2976,6 @@ async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
     updateDownloadsButtons();
     return;
   }
-
   downloadsScanBusy = true;
   updateDownloadsButtons();
   try {
@@ -3008,10 +2990,7 @@ async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
   } catch (error) {
     console.error(error);
     setDownloadsAutoStatus(error.message || 'İndirilenler klasörü taranamadı.', 'error');
-  } finally {
-    downloadsScanBusy = false;
-    updateDownloadsButtons();
-  }
+  } finally { downloadsScanBusy = false; updateDownloadsButtons(); }
 }
 
 function startDownloadsAutoScanTimer() {
@@ -3026,20 +3005,17 @@ async function connectDownloadsFolder() {
     setDownloadsAutoStatus('Bu özellik masaüstü Chrome/Edge üzerinde HTTPS veya localhost ile çalışır.', 'error');
     return;
   }
-
   try {
     let handle = downloadsDirectoryHandle;
     if (handle) {
       const granted = await directoryHasReadPermission(handle, true);
       if (!granted) handle = null;
     }
-
     if (!handle) {
       handle = await window.showDirectoryPicker({ id: 'opera-downloads', mode: 'read', startIn: 'downloads' });
       const granted = await directoryHasReadPermission(handle, true);
       if (!granted) throw new Error('Klasör okuma izni verilmedi.');
     }
-
     downloadsDirectoryHandle = handle;
     await saveDownloadsDirectoryHandle(handle);
     downloadsLastSignature = '';
@@ -3047,10 +3023,7 @@ async function connectDownloadsFolder() {
     await scanDownloadsFolder({ force: true, autoApply: true });
     startDownloadsAutoScanTimer();
   } catch (error) {
-    if (error?.name === 'AbortError') {
-      setDownloadsAutoStatus('Klasör seçimi iptal edildi.', '');
-      return;
-    }
+    if (error?.name === 'AbortError') { setDownloadsAutoStatus('Klasör seçimi iptal edildi.', ''); return; }
     console.error(error);
     setDownloadsAutoStatus(error.message || 'İndirilenler klasörü bağlanamadı.', 'error');
   }
@@ -3062,18 +3035,15 @@ async function initDownloadsAutomation() {
     setDownloadsAutoStatus('Otomatik klasör okuma için masaüstü Chrome/Edge ve HTTPS/localhost gerekir.', 'error');
     return;
   }
-
   try {
     downloadsDirectoryHandle = await restoreDownloadsDirectoryHandle();
     updateDownloadsButtons();
     if (!downloadsDirectoryHandle) return;
-
     const allowed = await directoryHasReadPermission(downloadsDirectoryHandle, false);
     if (!allowed) {
       setDownloadsAutoStatus('İndirilenler klasörü hatırlandı. Erişimi etkinleştirmek için Bağla düğmesine bir kez bas.', '');
       return;
     }
-
     await scanDownloadsFolder({ force: true, autoApply: true });
     startDownloadsAutoScanTimer();
   } catch (error) {
