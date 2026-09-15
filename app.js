@@ -44,6 +44,7 @@ const downloadsAutoPanel = document.getElementById('downloadsAutoPanel');
 const downloadsAutoStatus = document.getElementById('downloadsAutoStatus');
 const downloadsConnectBtn = document.getElementById('downloadsConnectBtn');
 const downloadsRefreshBtn = document.getElementById('downloadsRefreshBtn');
+const downloadsFolderFallbackInput = document.getElementById('downloadsFolderFallbackInput');
 
 const MODE_DEPARTURES = 'departures';
 const MODE_ARRIVALS = 'arrivals';
@@ -90,6 +91,8 @@ let downloadsScanBusy = false;
 let downloadsAutoLoadBusy = false;
 let downloadsScanTimer = null;
 let autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
+let downloadsFallbackFiles = [];
+let downloadsUsingFallback = false;
 
 
 const FIELD_DEFS = [
@@ -2856,7 +2859,7 @@ function autoFilesLabel(items = []) {
   return `${list.length} dosya: ${list.map(autoFileLabel).join(', ')}`;
 }
 function updateDownloadsButtons() {
-  if (downloadsRefreshBtn) downloadsRefreshBtn.disabled = !downloadsDirectoryHandle || downloadsScanBusy;
+  if (downloadsRefreshBtn) downloadsRefreshBtn.disabled = (!downloadsDirectoryHandle && !downloadsUsingFallback) || downloadsScanBusy;
   if (downloadsConnectBtn) downloadsConnectBtn.disabled = downloadsScanBusy;
 }
 function downloadsSummaryText() {
@@ -3000,31 +3003,96 @@ function startDownloadsAutoScanTimer() {
   }, DOWNLOADS_SCAN_INTERVAL_MS);
 }
 
-async function connectDownloadsFolder() {
-  if (!supportsDownloadsFolderAccess()) {
-    setDownloadsAutoStatus('Bu özellik masaüstü Chrome/Edge üzerinde HTTPS veya localhost ile çalışır.', 'error');
+async function applyFallbackDownloadsFiles(files) {
+  const list = [...(files || [])].filter(file => /\.(xlsx|xls|csv|pdf)$/i.test(file.name || ''));
+  if (!list.length) {
+    setDownloadsAutoStatus('Seçilen klasörde uygun Excel/PDF dosyası bulunamadı.', 'error');
     return;
   }
+
+  downloadsFallbackFiles = list;
+  downloadsUsingFallback = true;
+  downloadsDirectoryHandle = null;
+  downloadsLastSignature = '';
+  setDownloadsAutoStatus(`${list.length} dosya inceleniyor…`, 'loading');
+  updateDownloadsButtons();
+
+  try {
+    list.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
+    await classifyDownloadsFiles(list);
+    setDownloadsAutoStatus(`Klasör seçildi • ${downloadsSummaryText()}`, 'ok');
+    await applyAutoDownloadsForCurrentMode({ silentMissing: true });
+  } catch (error) {
+    console.error(error);
+    setDownloadsAutoStatus(error.message || 'Seçilen klasör okunamadı.', 'error');
+  } finally {
+    updateDownloadsButtons();
+  }
+}
+
+function openDownloadsFallbackPicker(message = 'Klasör seçme ekranı açılıyor…') {
+  if (!downloadsFolderFallbackInput) {
+    setDownloadsAutoStatus('Bu tarayıcı klasör seçimini desteklemiyor. Chrome veya Edge kullan.', 'error');
+    return;
+  }
+  setDownloadsAutoStatus(message, 'loading');
+  // Aynı klasör tekrar seçilebilsin.
+  downloadsFolderFallbackInput.value = '';
+  downloadsFolderFallbackInput.click();
+}
+
+async function connectDownloadsFolder() {
+  // Kullanıcı tıklamasına anında görsel yanıt ver; sessiz kalmasın.
+  setDownloadsAutoStatus('İndirilenler klasörü seçme ekranı açılıyor…', 'loading');
+
+  if (!supportsDownloadsFolderAccess()) {
+    openDownloadsFallbackPicker('Tarayıcı doğrudan klasör bağlantısını desteklemiyor. İndirilenler klasörünü seç…');
+    return;
+  }
+
   try {
     let handle = downloadsDirectoryHandle;
     if (handle) {
       const granted = await directoryHasReadPermission(handle, true);
       if (!granted) handle = null;
     }
+
     if (!handle) {
-      handle = await window.showDirectoryPicker({ id: 'opera-downloads', mode: 'read', startIn: 'downloads' });
+      try {
+        handle = await window.showDirectoryPicker({ id: 'opera-downloads', mode: 'read', startIn: 'downloads' });
+      } catch (firstError) {
+        // Bazı Chromium sürümleri startIn:'downloads' parametresini reddedebiliyor.
+        if (firstError?.name === 'TypeError') {
+          handle = await window.showDirectoryPicker({ id: 'opera-downloads', mode: 'read' });
+        } else {
+          throw firstError;
+        }
+      }
       const granted = await directoryHasReadPermission(handle, true);
       if (!granted) throw new Error('Klasör okuma izni verilmedi.');
     }
+
+    downloadsUsingFallback = false;
+    downloadsFallbackFiles = [];
     downloadsDirectoryHandle = handle;
     await saveDownloadsDirectoryHandle(handle);
     downloadsLastSignature = '';
+    setDownloadsAutoStatus('İndirilenler bağlandı, dosyalar taranıyor…', 'loading');
     updateDownloadsButtons();
     await scanDownloadsFolder({ force: true, autoApply: true });
     startDownloadsAutoScanTimer();
   } catch (error) {
-    if (error?.name === 'AbortError') { setDownloadsAutoStatus('Klasör seçimi iptal edildi.', ''); return; }
+    if (error?.name === 'AbortError') {
+      setDownloadsAutoStatus('Klasör seçimi iptal edildi.', '');
+      return;
+    }
+
     console.error(error);
+    // Güvenlik/izin problemi varsa kullanıcıyı boşta bırakma; yedek klasör seçiciyi sun.
+    if (['SecurityError', 'NotAllowedError', 'InvalidStateError'].includes(error?.name)) {
+      openDownloadsFallbackPicker('Doğrudan bağlantı engellendi. Yedek yöntemle İndirilenler klasörünü seç…');
+      return;
+    }
     setDownloadsAutoStatus(error.message || 'İndirilenler klasörü bağlanamadı.', 'error');
   }
 }
@@ -3032,7 +3100,7 @@ async function connectDownloadsFolder() {
 async function initDownloadsAutomation() {
   if (!supportsDownloadsFolderAccess()) {
     if (downloadsAutoPanel) downloadsAutoPanel.hidden = false;
-    setDownloadsAutoStatus('Otomatik klasör okuma için masaüstü Chrome/Edge ve HTTPS/localhost gerekir.', 'error');
+    setDownloadsAutoStatus('Doğrudan otomatik bağlantı desteklenmiyor. Bağla düğmesiyle klasörü yedek yöntemle seçebilirsin.', '');
     return;
   }
   try {
@@ -3742,7 +3810,16 @@ function printOfficeDirect() {
 }
 
 downloadsConnectBtn?.addEventListener('click', connectDownloadsFolder);
-downloadsRefreshBtn?.addEventListener('click', () => scanDownloadsFolder({ force: true, autoApply: true }));
+downloadsFolderFallbackInput?.addEventListener('change', event => {
+  applyFallbackDownloadsFiles(event.target.files).catch(console.error);
+});
+downloadsRefreshBtn?.addEventListener('click', () => {
+  if (downloadsDirectoryHandle) {
+    scanDownloadsFolder({ force: true, autoApply: true }).catch(console.error);
+  } else if (downloadsUsingFallback) {
+    openDownloadsFallbackPicker('Yenilemek için İndirilenler klasörünü tekrar seç…');
+  }
+});
 
 greenRoomsInput.addEventListener('input', () => {
   if (originalGroups.size) updateOutput();
