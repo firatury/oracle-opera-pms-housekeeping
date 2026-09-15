@@ -2884,6 +2884,32 @@ async function readWorkbookForAutoDetection(file) {
   return XLSX.read(buffer, { type: 'array', cellDates: true, raw: true });
 }
 
+// Otomatik klasör taramasında yalnızca bugünün dosyaları kullanılır.
+// Tarih karşılaştırması otelin kullandığı Türkiye saatine göre yapılır.
+function istanbulDateKey(value = Date.now()) {
+  const date = value instanceof Date ? value : new Date(Number(value || 0));
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function isFileFromToday(file) {
+  if (!file) return false;
+  const modified = Number(file.lastModified || 0);
+  if (!modified) return false;
+  return istanbulDateKey(modified) === istanbulDateKey(Date.now());
+}
+
+function todayFileOnlyMessage() {
+  return `Yalnız bugünün (${new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date())}) dosyaları kullanılıyor.`;
+}
+
 async function buildDownloadsSignature(handle) {
   const entries = [];
   for await (const entry of handle.values()) {
@@ -2892,6 +2918,7 @@ async function buildDownloadsSignature(handle) {
     if (!/\.(xlsx|xls|csv|pdf)$/i.test(name)) continue;
     try {
       const file = await entry.getFile();
+      if (!isFileFromToday(file)) continue;
       entries.push(`${file.name}:${file.lastModified}:${file.size}`);
     } catch (error) { console.warn('Dosya bilgisi okunamadı:', name, error); }
   }
@@ -2903,7 +2930,10 @@ async function collectDownloadsCandidates(handle) {
   for await (const entry of handle.values()) {
     if (entry.kind !== 'file') continue;
     if (!/\.(xlsx|xls|csv|pdf)$/i.test(entry.name || '')) continue;
-    try { files.push(await entry.getFile()); }
+    try {
+      const file = await entry.getFile();
+      if (isFileFromToday(file)) files.push(file);
+    }
     catch (error) { console.warn('İndirilenler dosyası açılamadı:', entry.name, error); }
   }
   files.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
@@ -2914,8 +2944,9 @@ async function classifyDownloadsFiles(files) {
   autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
   const ambiguousExcels = [];
   const ambiguousPdfs = [];
+  const todayFiles = [...(files || [])].filter(isFileFromToday);
 
-  for (const file of files) {
+  for (const file of todayFiles) {
     if (/\.pdf$/i.test(file.name)) {
       const hint = fileNameModeHint(file.name);
       if (hint?.mode === MODE_VACANT) addAutoFile('vacant', file);
@@ -2988,7 +3019,11 @@ async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
     setDownloadsAutoStatus('İndirilenler taranıyor…', 'loading');
     const files = await collectDownloadsCandidates(downloadsDirectoryHandle);
     await classifyDownloadsFiles(files);
-    setDownloadsAutoStatus(`Otomatik bağlı • ${downloadsSummaryText()}`, 'ok');
+    if (!files.length) {
+      setDownloadsAutoStatus(`${todayFileOnlyMessage()} Bugüne ait uygun Excel/PDF bulunamadı.`, 'error');
+    } else {
+      setDownloadsAutoStatus(`Otomatik bağlı • ${todayFileOnlyMessage()} • ${downloadsSummaryText()}`, 'ok');
+    }
     if (autoApply) await applyAutoDownloadsForCurrentMode({ silentMissing: true });
   } catch (error) {
     console.error(error);
@@ -3004,9 +3039,12 @@ function startDownloadsAutoScanTimer() {
 }
 
 async function applyFallbackDownloadsFiles(files) {
-  const list = [...(files || [])].filter(file => /\.(xlsx|xls|csv|pdf)$/i.test(file.name || ''));
+  const supported = [...(files || [])].filter(file => /\.(xlsx|xls|csv|pdf)$/i.test(file.name || ''));
+  const list = supported.filter(isFileFromToday);
   if (!list.length) {
-    setDownloadsAutoStatus('Seçilen klasörde uygun Excel/PDF dosyası bulunamadı.', 'error');
+    downloadsFallbackFiles = [];
+    autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
+    setDownloadsAutoStatus(`${todayFileOnlyMessage()} Seçilen klasörde bugüne ait uygun Excel/PDF bulunamadı.`, 'error');
     return;
   }
 
@@ -3020,7 +3058,7 @@ async function applyFallbackDownloadsFiles(files) {
   try {
     list.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
     await classifyDownloadsFiles(list);
-    setDownloadsAutoStatus(`Klasör seçildi • ${downloadsSummaryText()}`, 'ok');
+    setDownloadsAutoStatus(`Klasör seçildi • ${todayFileOnlyMessage()} • ${downloadsSummaryText()}`, 'ok');
     await applyAutoDownloadsForCurrentMode({ silentMissing: true });
   } catch (error) {
     console.error(error);
