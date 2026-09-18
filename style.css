@@ -1573,3 +1573,33 @@ table.lc-table {
 @media print {
   .downloads-auto-panel { display: none !important; }
 }
+
+
+/* Ofis çıktısı: Vacant'ta temiz (VAC + IP) olup Arrivals'ta bulunmayan odalar */
+.missing-clean-title {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: .02em;
+  margin: 0 0 5px;
+  color: #111;
+}
+.missing-clean-meta {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.departure-table.missing-clean-table .missing-clean-head th {
+  background: #2e6d2e;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+@media print {
+  .missing-clean-title { font-size: 15px; margin-bottom: 3px; }
+  .missing-clean-meta { font-size: 8px; margin-bottom: 5px; }
+  /* Önceki Ofis sayfası zaten break-after: page kullandığı için burada
+     ayrıca break-before vermiyoruz; çift kırılma boş sayfa üretebilir. */
+}

@@ -71,6 +71,9 @@ let lastWorkbook = null;
 let lastWorkbooks = [];
 let greenRooms = new Set();
 let vacantRoomsFileName = '';
+// Vacant PDF'deki VAC + IP odaların tüm satır bilgileri.
+// Ofis çıktısında Arrivals'ta olmayan temiz odaları ayrı sayfada göstermek için tutulur.
+let vacantCleanRecordsByRoom = new Map();
 let currentRoomFilter = new Map(); // room -> { room, arrivalDate, source }
 let currentRoomFileNames = [];
 let dndResults = [];
@@ -2023,15 +2026,21 @@ async function handleArrivalsVacantPdfs(files) {
     }
 
     const uniqueRooms = new Set();
+    const cleanRecords = new Map();
     const usedNames = [];
-    for (const file of fileList) {
+    // En güncel dosya önce işlensin; aynı oda birden fazla PDF'de varsa en güncel satır korunur.
+    const sortedFiles = [...fileList].sort((a, b) => Number(b?.lastModified || 0) - Number(a?.lastModified || 0));
+    for (const file of sortedFiles) {
       try {
         const item = await readVacantPdfFile(file);
         item.records
           .filter(isVacantCleanRecord)
-          .map(record => normalizeRoomId(record.room))
-          .filter(Boolean)
-          .forEach(room => uniqueRooms.add(room));
+          .forEach(record => {
+            const room = normalizeRoomId(record.room);
+            if (!room) return;
+            uniqueRooms.add(room);
+            if (!cleanRecords.has(room)) cleanRecords.set(room, { ...record, room });
+          });
         usedNames.push(item.name);
       } catch (error) {
         console.warn('Vacant PDF atlandı:', file.name, error);
@@ -2041,6 +2050,7 @@ async function handleArrivalsVacantPdfs(files) {
     if (!uniqueRooms.size) throw new Error('Vacant Rooms PDF dosyalarında Room Type = VAC ve FO Status = IP olan oda bulunamadı.');
 
     greenRooms = uniqueRooms;
+    vacantCleanRecordsByRoom = cleanRecords;
     vacantRoomsFileName = usedNames.length <= 1 ? (usedNames[0] || '') : `${usedNames.length} Vacant PDF`;
     if (greenRoomsInput) greenRoomsInput.value = sortedGreenRoomList().join(', ');
 
@@ -2053,6 +2063,7 @@ async function handleArrivalsVacantPdfs(files) {
   } catch (error) {
     console.error(error);
     greenRooms = new Set();
+    vacantCleanRecordsByRoom = new Map();
     vacantRoomsFileName = '';
     if (greenRoomsInput) greenRoomsInput.value = '';
     updateVacantRoomsStatus({ error: error.message || 'Vacant Rooms PDF okunamadı.' });
@@ -2557,6 +2568,86 @@ function renderPrintablePreview(groups) {
     const pages = splitNumberedRecordsForPrint(numbered);
     pages.forEach(pageRecords => renderPage(pageRecords, groupName, { padToRows: appSettings.fillBlankRows ? rowsPerPage : 0 }));
   });
+}
+
+function arrivalsRoomIdSet() {
+  return new Set(
+    allOriginalRecords()
+      .map(record => normalizeRoomId(record.room))
+      .filter(Boolean),
+  );
+}
+
+function cleanVacantRecordsMissingFromArrivals() {
+  if (currentMode !== MODE_ARRIVALS || !vacantCleanRecordsByRoom.size) return [];
+  const arrivalsRooms = arrivalsRoomIdSet();
+  return [...vacantCleanRecordsByRoom.values()]
+    .filter(record => {
+      const room = normalizeRoomId(record.room);
+      return room && !arrivalsRooms.has(room);
+    })
+    .sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room));
+}
+
+function renderMissingCleanVacantPage(records, pageIndex = 0, pageCount = 1) {
+  const page = document.createElement('article');
+  page.className = 'sheet-page auto-fill-page missing-clean-page';
+  page.dataset.group = 'TemizAmaArrivalsYok';
+
+  const rowsHtml = records.map((record, index) => `<tr>
+    <td class="idx">${pageIndex * PRINT_ROWS_PER_PAGE.vacant + index + 1}</td>
+    <td class="room room-green">${escapeHtml(record.room)}</td>
+    <td>${escapeHtml(record.roomClass)}</td>
+    <td>${escapeHtml(record.roomType)}</td>
+    <td>${escapeHtml(record.foStatus)}</td>
+    <td>${escapeHtml(record.nightsVacant)}</td>
+    <td class="name">${escapeHtml(record.name)}</td>
+    <td>${escapeHtml(record.arrival)}</td>
+    <td>${escapeHtml(record.departure)}</td>
+    <td class="status-cell">${escapeHtml(record.reservationStatus)}</td>
+    <td>${escapeHtml(record.adults)}</td>
+    <td>${escapeHtml(record.children)}</td>
+    <td>${escapeHtml(record.discrepantStatus)}</td>
+    <td>${escapeHtml(record.nextBlocked)}</td>
+    <td class="notes">${escapeHtml(record.notes)}</td>
+  </tr>`).join('');
+
+  const sourceText = vacantRoomsFileName ? `Kaynak: ${escapeHtml(vacantRoomsFileName)}` : 'Vacant Rooms';
+  const pageText = pageCount > 1 ? ` • Sayfa ${pageIndex + 1}/${pageCount}` : '';
+  page.innerHTML = `
+    <div class="missing-clean-title">TEMİZ AMA ARRIVALS LİSTESİNDE OLMAYAN ODALAR</div>
+    <div class="missing-clean-meta">VAC + IP • ${records.length} oda bu sayfada • ${sourceText}${pageText}</div>
+    <div class="table-wrap">
+      <table class="departure-table vacant-table missing-clean-table">
+        <colgroup>
+          <col class="idx"><col class="room"><col class="vac-class"><col class="vac-type"><col class="vac-fo"><col class="vac-nights"><col class="name"><col class="date"><col class="date"><col class="vac-status"><col class="small"><col class="small"><col class="vac-disc"><col class="date"><col class="notes">
+        </colgroup>
+        <thead>
+          <tr class="missing-clean-head"><th colspan="15">ARRIVALS DIŞI TEMİZ ODALAR</th></tr>
+          <tr>
+            <th></th><th>Room</th><th>Class</th><th>Type</th><th>FO</th><th>Nights<br>Vac.</th>
+            <th>Name</th><th>Arr.</th><th>Dep.</th><th>Res.<br>Status</th><th>Ad.</th><th>Ch.</th>
+            <th>Disc.</th><th>Next<br>Blocked</th><th>NOTLAR</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+  preview.appendChild(page);
+}
+
+function appendMissingCleanVacantPagesToOffice() {
+  if (currentMode !== MODE_ARRIVALS) return 0;
+  const missing = cleanVacantRecordsMissingFromArrivals();
+  if (!missing.length) return 0;
+
+  const rowsPerPage = PRINT_ROWS_PER_PAGE.vacant || 38;
+  const pages = [];
+  for (let i = 0; i < missing.length; i += rowsPerPage) {
+    pages.push(missing.slice(i, i + rowsPerPage));
+  }
+  pages.forEach((pageRecords, index) => renderMissingCleanVacantPage(pageRecords, index, pages.length));
+  return missing.length;
 }
 
 function renderSummary(groups) {
@@ -3277,6 +3368,7 @@ function clearAll() {
   lastWorkbook = null;
   lastWorkbooks = [];
   greenRooms = new Set();
+  vacantCleanRecordsByRoom = new Map();
   vacantRoomsFileName = '';
   currentRoomFilter = new Map();
   currentRoomFileNames = [];
@@ -3841,8 +3933,12 @@ function printOfficeDirect() {
 
   updateGreenRooms();
   renderPrintablePreview(officeGroups);
+  const missingCleanCount = appendMissingCleanVacantPagesToOffice();
   renderSummary(officeGroups);
-  setStatus(`Ofis çıktısı ${modeLabel()} için ayrıştırmadan hazırlandı. Yazdırma ekranı açılıyor...`, 'ok');
+  const missingText = currentMode === MODE_ARRIVALS && missingCleanCount
+    ? ` Ayrıca Arrivals listesinde olmayan ${missingCleanCount} temiz oda Vacant bilgileriyle ayrı sayfaya eklendi.`
+    : '';
+  setStatus(`Ofis çıktısı ${modeLabel()} için ayrıştırmadan hazırlandı.${missingText} Yazdırma ekranı açılıyor...`, 'ok');
   printCleanPdf({
     skipAssignmentCheck: true,
     printTitle: modeLabel(),
