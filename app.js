@@ -1971,8 +1971,10 @@ async function readVacantPdfFile(file) {
 
 function isVacantCleanRecord(record) {
   const roomType = canonical(record?.roomType || '');
-  // Temiz oda olarak yalnızca VAC IP kabul edilir. Sadece VAC olan kayıtlar alınmaz.
-  return roomType === 'vac ip' || roomType === 'vacip';
+  const foStatus = canonical(record?.foStatus || '');
+  // Temiz oda koşulu iki ayrı sütunda aranır:
+  // Room Type = VAC ve FO Status = IP.
+  return roomType === 'vac' && foStatus === 'ip';
 }
 
 function sortedGreenRoomList() {
@@ -1994,14 +1996,14 @@ function updateVacantRoomsStatus({ error = '' } = {}) {
   }
 
   if (!greenRooms.size) {
-    vacantRoomsStatus.textContent = 'Vacant Rooms PDF yükle; yalnız Room Type = VAC IP olan odalar otomatik bulunur.';
+    vacantRoomsStatus.textContent = 'Vacant Rooms PDF yükle; Room Type = VAC ve FO Status = IP olan odalar otomatik bulunur.';
     vacantRoomsStatus.className = 'vacant-rooms-status';
     return;
   }
 
   const matchCount = arrivalsGreenMatchCount();
   const source = vacantRoomsFileName ? `${vacantRoomsFileName}: ` : '';
-  vacantRoomsStatus.textContent = `${source}${greenRooms.size} VAC IP oda bulundu. Arrivals listesinde ${matchCount} oda temiz olarak eşleşti.`;
+  vacantRoomsStatus.textContent = `${source}${greenRooms.size} VAC + IP oda bulundu. Arrivals listesinde ${matchCount} oda temiz olarak eşleşti.`;
   vacantRoomsStatus.className = 'vacant-rooms-status ok';
 }
 
@@ -2036,17 +2038,17 @@ async function handleArrivalsVacantPdfs(files) {
       }
     }
 
-    if (!uniqueRooms.size) throw new Error('Vacant Rooms PDF dosyalarında Room Type = VAC IP olan oda bulunamadı.');
+    if (!uniqueRooms.size) throw new Error('Vacant Rooms PDF dosyalarında Room Type = VAC ve FO Status = IP olan oda bulunamadı.');
 
     greenRooms = uniqueRooms;
     vacantRoomsFileName = usedNames.length <= 1 ? (usedNames[0] || '') : `${usedNames.length} Vacant PDF`;
     if (greenRoomsInput) greenRoomsInput.value = sortedGreenRoomList().join(', ');
 
     if (originalGroups.size) {
-      updateOutput(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC IP oda alındı; Arrivals temiz odaları yeşil işaretlendi.`);
+      updateOutput(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC + IP oda alındı; Arrivals temiz odaları yeşil işaretlendi.`);
     } else {
       updateVacantRoomsStatus();
-      setStatus(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC IP oda hazır. Şimdi Arrivals Excel dosyasını yükle.`, 'ok');
+      setStatus(`${vacantRoomsFileName}: ${greenRooms.size} benzersiz VAC + IP oda hazır. Şimdi Arrivals Excel dosyasını yükle.`, 'ok');
     }
   } catch (error) {
     console.error(error);

@@ -40,11 +40,11 @@
         <label for="vacantRoomsPdfInput">Temiz odalar</label>
         <div class="vacant-upload-row">
           <input id="vacantRoomsPdfInput" class="vacant-file-input" type="file" accept=".pdf,application/pdf" disabled />
-          <span id="vacantRoomsStatus" class="vacant-rooms-status">Vacant Rooms PDF yükle; yalnız Room Type = VAC IP olan odalar otomatik bulunur.</span>
+          <span id="vacantRoomsStatus" class="vacant-rooms-status">Vacant Rooms PDF yükle; Room Type = VAC ve FO Status = IP olan odalar otomatik bulunur.</span>
         </div>
-        <label for="greenRoomsInput">Bulunan VAC IP odaları</label>
+        <label for="greenRoomsInput">Bulunan VAC + IP odaları</label>
         <input id="greenRoomsInput" type="text" placeholder="Vacant PDF'den otomatik doldurulur" readonly disabled />
-        <small>Yalnız VAC IP olan odalar Arrivals listesinde temiz oda olarak yeşil işaretlenir.</small>
+        <small>Room Type = VAC ve FO Status = IP olan odalar Arrivals listesinde temiz oda olarak yeşil işaretlenir.</small>
       </div>
 
       <section id="assignmentPanel" class="assignment-panel compact" hidden>
