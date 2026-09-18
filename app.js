@@ -2615,7 +2615,6 @@ function renderMissingCleanVacantPage(records, pageIndex = 0, pageCount = 1) {
   const sourceText = vacantRoomsFileName ? `Kaynak: ${escapeHtml(vacantRoomsFileName)}` : 'Vacant Rooms';
   const pageText = pageCount > 1 ? ` • Sayfa ${pageIndex + 1}/${pageCount}` : '';
   page.innerHTML = `
-    <div class="missing-clean-title">TEMİZ AMA ARRIVALS LİSTESİNDE OLMAYAN ODALAR</div>
     <div class="missing-clean-meta">VAC + IP • ${records.length} oda bu sayfada • ${sourceText}${pageText}</div>
     <div class="table-wrap">
       <table class="departure-table vacant-table missing-clean-table">
