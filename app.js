@@ -2299,7 +2299,7 @@ function renderOperationsOverview({ error = '' } = {}) {
     {
       label: 'Kirli Oda',
       className: 'dirty',
-      value: stats => stats.di.length,
+      value: stats => stats.dirtyEmpty.length,
     },
     {
       label: 'Boş Temiz',
