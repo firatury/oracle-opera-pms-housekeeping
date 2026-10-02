@@ -2264,74 +2264,91 @@ function renderOperationsOverview({ error = '' } = {}) {
   if (!operationsOverview) return;
   operationsOverview.hidden = !overviewActive;
   if (!overviewActive) return;
+
   if (error) {
     operationsOverview.innerHTML = `<div class="overview-empty">${escapeHtml(error)}</div>`;
     return;
   }
 
-  const totals = CHIEF_GROUPS.map(overviewGroupStats);
-  const sumRows = key => totals.reduce((acc, item) => acc + (item[key]?.length || 0), 0);
-  const sumNum = key => totals.reduce((acc, item) => acc + Number(item[key] || 0), 0);
-  const arrivalsCount = sumRows('arrivals');
-  const departuresCount = sumRows('departures');
-  const vacantCount = sumRows('vacant');
+  const groups = CHIEF_GROUPS.map(groupName => ({
+    groupName,
+    stats: overviewGroupStats(groupName),
+  }));
 
-  if (!arrivalsCount && !departuresCount && !vacantCount) {
-    operationsOverview.innerHTML = `<div class="overview-head"><div><h2>Günlük Oda ve Operasyon Özeti</h2><p>1000, 2000, 3000, 4000 ve 5000 bölgeleri ayrı ayrı gösterilir.</p></div><button type="button" class="overview-refresh-btn" data-overview-refresh>Verileri Yenile</button></div><div class="overview-empty">Bugüne ait özet verisi yok. İndirilenler klasörünü bağla veya bugünün Arrivals, Departures ve Vacant dosyalarını yükle.</div>`;
+  const hasData = groups.some(({ stats }) => stats.arrivals.length || stats.departures.length || stats.vacant.length);
+  if (!hasData) {
+    operationsOverview.innerHTML = `
+      <div class="overview-head overview-head-simple">
+        <div>
+          <h2>Günlük Oda Özeti</h2>
+          <p>1000–5000 bölgeleri için temel operasyon sayıları.</p>
+        </div>
+        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+      </div>
+      <div class="overview-empty">Bugüne ait Arrivals, Departures veya Vacant verisi bulunamadı.</div>`;
     return;
   }
 
-  const occupiedCount = sumRows('occupied');
-  const emptyCount = sumRows('empty');
-  const cleanEmptyCount = sumRows('cleanEmpty');
-  const dirtyEmptyCount = sumRows('dirtyEmpty');
-  const arrivalsClean = sumRows('arrivalsCleanEmpty');
-  const arrivalsDirty = sumRows('arrivalsDirtyEmpty');
-  const sameDayCount = sumRows('sameDay');
-  const lateCount = sumRows('lateDepartures');
-  const discrepantCount = sumRows('discrepant');
-  const nextBlockedCount = sumRows('nextBlocked');
-  const cleanNoArrivalCount = sumRows('cleanEmptyNoArrival');
-  const arrivalAdults = totals.reduce((acc, x) => acc + recordAdultsTotal(x.arrivals), 0);
-  const arrivalChildren = totals.reduce((acc, x) => acc + recordChildrenTotal(x.arrivals), 0);
-  const departureAdults = totals.reduce((acc, x) => acc + recordAdultsTotal(x.departures), 0);
-  const departureChildren = totals.reduce((acc, x) => acc + recordChildrenTotal(x.departures), 0);
-  const sourceBits = ['arrivals','departures','vacant'].map(key => overviewSources[key]?.length ? `${key === 'arrivals' ? 'Giriş' : key === 'departures' ? 'Çıkış' : 'Vacant'}: ${overviewSources[key].join(', ')}` : '').filter(Boolean);
+  const columns = groups.map(({ groupName }) => String(groupName).replace(/ler$/i, ''));
+  const rows = [
+    {
+      label: 'Dolu Oda',
+      className: 'occupied',
+      value: stats => stats.occupied.length,
+    },
+    {
+      label: 'Kirli Oda',
+      className: 'dirty',
+      value: stats => stats.di.length,
+    },
+    {
+      label: 'Boş Temiz',
+      className: 'clean',
+      value: stats => stats.cleanEmpty.length,
+    },
+    {
+      label: 'Temiz Girişli',
+      className: 'clean-arrival',
+      value: stats => stats.arrivalsCleanEmpty.length,
+    },
+    {
+      label: 'Toplam Arrivals',
+      className: 'arrivals',
+      value: stats => stats.arrivals.length,
+    },
+    {
+      label: 'Toplam Departures',
+      className: 'departures',
+      value: stats => stats.departures.length,
+    },
+  ];
 
   operationsOverview.innerHTML = `
-    <div class="overview-head">
+    <div class="overview-head overview-head-simple">
       <div>
-        <h2>Günlük Oda ve Operasyon Özeti</h2>
-        <p>Bugünün giriş, çıkış ve Vacant verileri • 1000–5000 bölgeleri ayrı • Kutulara dokununca oda numaraları açılır.</p>
+        <h2>Günlük Oda Özeti</h2>
+        <p>1000, 2000, 3000, 4000 ve 5000 bölgeleri.</p>
       </div>
-      <button type="button" class="overview-refresh-btn" data-overview-refresh>Verileri Yenile</button>
+      <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
     </div>
 
-    <div class="overview-summary-label">GENEL TOPLAMLAR</div>
-    <div class="overview-total-grid">
-      <div class="overview-total-card"><strong>${vacantCount}</strong><span>Toplam oda</span></div>
-      <div class="overview-total-card occupied"><strong>${occupiedCount}</strong><span>Dolu oda</span><small>${percentText(occupiedCount, vacantCount)}</small></div>
-      <div class="overview-total-card vacant"><strong>${emptyCount}</strong><span>Boş oda</span><small>${percentText(emptyCount, vacantCount)}</small></div>
-      <div class="overview-total-card clean"><strong>${cleanEmptyCount}</strong><span>Temiz boş</span><small>${percentText(cleanEmptyCount, emptyCount)} / boşlar</small></div>
-      <div class="overview-total-card danger"><strong>${dirtyEmptyCount}</strong><span>Kirli boş</span><small>${percentText(dirtyEmptyCount, emptyCount)} / boşlar</small></div>
-      <div class="overview-total-card"><strong>${arrivalsCount}</strong><span>Bugünkü giriş oda</span></div>
-      <div class="overview-total-card"><strong>${arrivalAdults + arrivalChildren}</strong><span>Giriş toplam kişi</span><small>${arrivalAdults} yetişkin • ${arrivalChildren} çocuk</small></div>
-      <div class="overview-total-card"><strong>${departuresCount}</strong><span>Bugünkü çıkış oda</span></div>
-      <div class="overview-total-card"><strong>${departureAdults + departureChildren}</strong><span>Çıkış toplam kişi</span><small>${departureAdults} yetişkin • ${departureChildren} çocuk</small></div>
-      <div class="overview-total-card warn"><strong>${sameDayCount}</strong><span>Aynı gün giriş + çıkış</span></div>
-      <div class="overview-total-card clean"><strong>${arrivalsClean}</strong><span>Girişe hazır temiz oda</span></div>
-      <div class="overview-total-card danger"><strong>${arrivalsDirty}</strong><span>Giriş var, oda kirli</span></div>
-      <div class="overview-total-card warn"><strong>${lateCount}</strong><span>Geç çıkış</span></div>
-      <div class="overview-total-card danger"><strong>${discrepantCount}</strong><span>Uyuşmazlık / Discrepant</span></div>
-      <div class="overview-total-card warn"><strong>${nextBlockedCount}</strong><span>Sonraki rezervasyon bloklu</span></div>
-      <div class="overview-total-card clean"><strong>${cleanNoArrivalCount}</strong><span>Temiz ama giriş listesinde yok</span></div>
-      <div class="overview-total-card"><strong>${sumNum('nightsVacantSum')}</strong><span>Toplam boş kalma gecesi</span></div>
-      <div class="overview-total-card"><strong>${arrivalsCount + departuresCount}</strong><span>Toplam oda hareketi</span><small>Giriş + çıkış</small></div>
-    </div>
-
-    <div class="overview-summary-label">BÖLGE DETAYLARI</div>
-    <div class="overview-groups">${CHIEF_GROUPS.map(renderOverviewGroup).join('')}</div>
-    <div class="overview-source-note">${sourceBits.length ? escapeHtml(sourceBits.join(' • ')) : 'Kaynak: bugün yüklenen veriler'}</div>`;
+    <div class="overview-simple-wrap">
+      <table class="overview-simple-table">
+        <thead>
+          <tr>
+            <th>Durum</th>
+            ${columns.map(label => `<th>${escapeHtml(label)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr class="overview-row-${row.className}">
+              <th scope="row">${escapeHtml(row.label)}</th>
+              ${groups.map(({ stats }) => `<td>${row.value(stats)}</td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 async function loadOverviewWorkbookGroups(items, mode) {
