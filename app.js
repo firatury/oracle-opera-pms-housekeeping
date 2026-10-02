@@ -2024,14 +2024,23 @@ function isIpRoom(record) { return canonicalFoStatus(record) === 'ip'; }
 function isDiRoom(record) { return canonicalFoStatus(record) === 'di'; }
 function isDueInRoom(record) { return canonicalReservationStatus(record) === 'due in'; }
 function isCheckedInRoom(record) { return canonicalReservationStatus(record) === 'checked in'; }
+function isDueOutRoom(record) { return canonicalReservationStatus(record) === 'due out'; }
 
 function numericCount(value) {
   const n = Number(String(value ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/)?.[0] || 0);
   return Number.isFinite(n) ? n : 0;
 }
 
+function recordAdultsTotal(rows = []) {
+  return rows.reduce((sum, record) => sum + numericCount(record.adults), 0);
+}
+
+function recordChildrenTotal(rows = []) {
+  return rows.reduce((sum, record) => sum + numericCount(record.children), 0);
+}
+
 function recordPaxTotal(rows = []) {
-  return rows.reduce((sum, record) => sum + numericCount(record.adults) + numericCount(record.children), 0);
+  return recordAdultsTotal(rows) + recordChildrenTotal(rows);
 }
 
 function roomList(rows = []) {
@@ -2044,42 +2053,85 @@ function intersectRoomRows(rowsA = [], rowsB = []) {
   return rowsA.filter(row => other.has(normalizeRoomId(row.room)));
 }
 
-function metricDetails(label, rows, { value = null, className = '' } = {}) {
+function excludeRoomRows(rowsA = [], rowsB = []) {
+  const other = new Set(roomList(rowsB));
+  return rowsA.filter(row => !other.has(normalizeRoomId(row.room)));
+}
+
+function metricDetails(label, rows, { value = null, className = '', hint = '' } = {}) {
   const rooms = roomList(rows);
   const displayValue = value === null ? rooms.length : value;
   const roomText = rooms.length ? rooms.join(', ') : 'Oda yok';
+  const hintHtml = hint ? `<small class="metric-hint">${escapeHtml(hint)}</small>` : '';
   return `<details class="overview-metric ${className}">
-    <summary><span class="metric-label">${escapeHtml(label)}</span><span class="metric-value">${escapeHtml(displayValue)}</span></summary>
+    <summary><span class="metric-label-wrap"><span class="metric-label">${escapeHtml(label)}</span>${hintHtml}</span><span class="metric-value">${escapeHtml(displayValue)}</span></summary>
     <div class="room-list">${escapeHtml(roomText)}</div>
   </details>`;
 }
 
-function simpleMetric(label, value, className = '') {
-  return `<div class="overview-metric ${className}"><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
+function simpleMetric(label, value, className = '', hint = '') {
+  const hintHtml = hint ? `<small class="metric-hint">${escapeHtml(hint)}</small>` : '';
+  return `<div class="overview-metric ${className}"><div class="metric-label-wrap"><div class="metric-label">${escapeHtml(label)}</div>${hintHtml}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
+}
+
+function percentText(part, total) {
+  if (!total) return '%0';
+  return `%${((part / total) * 100).toFixed(1).replace('.', ',')}`;
+}
+
+function decimalText(value, digits = 1) {
+  const n = Number(value || 0);
+  return n.toFixed(digits).replace('.', ',');
 }
 
 function overviewGroupStats(groupName) {
   const arrivals = overviewData.arrivals.get(groupName) || [];
   const departures = overviewData.departures.get(groupName) || [];
   const vacant = overviewData.vacant.get(groupName) || [];
+
   const occupied = vacant.filter(isOccupiedRoom);
   const empty = vacant.filter(isVacantRoom);
   const ip = vacant.filter(isIpRoom);
   const di = vacant.filter(isDiRoom);
   const cleanEmpty = vacant.filter(row => isVacantRoom(row) && isIpRoom(row));
   const dirtyEmpty = vacant.filter(row => isVacantRoom(row) && isDiRoom(row));
+  const occupiedIp = vacant.filter(row => isOccupiedRoom(row) && isIpRoom(row));
+  const occupiedDi = vacant.filter(row => isOccupiedRoom(row) && isDiRoom(row));
+
   const dueIn = vacant.filter(isDueInRoom);
   const checkedIn = vacant.filter(isCheckedInRoom);
+  const dueOut = vacant.filter(isDueOutRoom);
+  const reservationKnown = new Set(['due in', 'checked in', 'due out', '']);
+  const otherReservation = vacant.filter(row => !reservationKnown.has(canonicalReservationStatus(row)));
   const emptyDueIn = vacant.filter(row => isVacantRoom(row) && isDueInRoom(row));
-  const emptyNoDueIn = vacant.filter(row => isVacantRoom(row) && !isDueInRoom(row));
+  const occupiedDueIn = vacant.filter(row => isOccupiedRoom(row) && isDueInRoom(row));
+
   const discrepant = vacant.filter(row => {
     const value = canonical(row.discrepantStatus || '');
     return value && value !== '0' && value !== '-';
   });
   const nextBlocked = vacant.filter(row => clean(row.nextBlocked));
   const emptyNextBlocked = vacant.filter(row => isVacantRoom(row) && clean(row.nextBlocked));
+  const occupiedNextBlocked = vacant.filter(row => isOccupiedRoom(row) && clean(row.nextBlocked));
   const nightsVacant = vacant.filter(row => numericCount(row.nightsVacant) > 0);
+  const nightsVacantSum = nightsVacant.reduce((sum, row) => sum + numericCount(row.nightsVacant), 0);
+  const nightsVacantMax = nightsVacant.reduce((max, row) => Math.max(max, numericCount(row.nightsVacant)), 0);
+  const nightsVacantAvg = nightsVacant.length ? nightsVacantSum / nightsVacant.length : 0;
+
   const sameDay = intersectRoomRows(arrivals, departures);
+  const arrivalsEmpty = intersectRoomRows(arrivals, empty);
+  const arrivalsOccupied = intersectRoomRows(arrivals, occupied);
+  const arrivalsCleanEmpty = intersectRoomRows(arrivals, cleanEmpty);
+  const arrivalsDirtyEmpty = intersectRoomRows(arrivals, dirtyEmpty);
+  const arrivalsNotInVacant = excludeRoomRows(arrivals, vacant);
+  const emptyNoArrival = excludeRoomRows(empty, arrivals);
+  const cleanEmptyNoArrival = excludeRoomRows(cleanEmpty, arrivals);
+  const dirtyEmptyNoArrival = excludeRoomRows(dirtyEmpty, arrivals);
+
+  const departuresOccupied = intersectRoomRows(departures, occupied);
+  const departuresEmpty = intersectRoomRows(departures, empty);
+  const departuresNotInVacant = excludeRoomRows(departures, vacant);
+
   const lateDepartures = departures.filter(record => {
     const etd = clean(record.etd);
     if (!etd) return false;
@@ -2088,49 +2140,120 @@ function overviewGroupStats(groupName) {
     if (![h, m, th, tm].every(Number.isFinite)) return etd === ETD_HIGHLIGHT;
     return h * 60 + m >= th * 60 + tm;
   });
-  return { arrivals, departures, vacant, occupied, empty, ip, di, cleanEmpty, dirtyEmpty, dueIn, checkedIn, emptyDueIn, emptyNoDueIn, discrepant, nextBlocked, emptyNextBlocked, nightsVacant, sameDay, lateDepartures };
+  const arrivalsWithChildren = arrivals.filter(record => numericCount(record.children) > 0);
+  const departuresWithChildren = departures.filter(record => numericCount(record.children) > 0);
+  const arrivalsNoEta = arrivals.filter(record => !clean(record.eta));
+  const departuresNoEtd = departures.filter(record => !clean(record.etd));
+
+  return {
+    arrivals, departures, vacant,
+    occupied, empty, ip, di, cleanEmpty, dirtyEmpty, occupiedIp, occupiedDi,
+    dueIn, checkedIn, dueOut, otherReservation, emptyDueIn, occupiedDueIn,
+    discrepant, nextBlocked, emptyNextBlocked, occupiedNextBlocked,
+    nightsVacant, nightsVacantSum, nightsVacantAvg, nightsVacantMax,
+    sameDay, arrivalsEmpty, arrivalsOccupied, arrivalsCleanEmpty, arrivalsDirtyEmpty,
+    arrivalsNotInVacant, emptyNoArrival, cleanEmptyNoArrival, dirtyEmptyNoArrival,
+    departuresOccupied, departuresEmpty, departuresNotInVacant,
+    lateDepartures, arrivalsWithChildren, departuresWithChildren, arrivalsNoEta, departuresNoEtd,
+  };
 }
 
 function renderOverviewGroup(groupName) {
   const x = overviewGroupStats(groupName);
   const totalRooms = x.vacant.length;
+  const groupLabel = String(groupName).replace(/ler$/i, ' Bölgesi');
+  const arrivalAdults = recordAdultsTotal(x.arrivals);
+  const arrivalChildren = recordChildrenTotal(x.arrivals);
+  const departureAdults = recordAdultsTotal(x.departures);
+  const departureChildren = recordChildrenTotal(x.departures);
+
   return `<article class="overview-group-card">
-    <div class="overview-group-head"><strong>${escapeHtml(groupName)}</strong><span>${totalRooms ? `${totalRooms} oda raporda` : 'Vacant verisi yok'}</span></div>
+    <div class="overview-group-head">
+      <div><strong>${escapeHtml(groupLabel)}</strong><small>${escapeHtml(groupName)}</small></div>
+      <span>${totalRooms ? `${totalRooms} oda Vacant raporunda` : 'Vacant verisi yok'}</span>
+    </div>
     <div class="overview-metric-sections">
       <section class="overview-metric-section">
-        <h3>Oda Durumu</h3>
+        <h3>Oda doluluk ve temizlik</h3>
         <div class="overview-metrics">
-          ${metricDetails('Toplam oda', x.vacant)}
-          ${metricDetails('Dolu (OCC)', x.occupied, { className: 'is-info' })}
-          ${metricDetails('Boş (VAC)', x.empty, { className: 'is-info' })}
-          ${metricDetails('Temiz boş (VAC + IP)', x.cleanEmpty, { className: 'is-clean' })}
-          ${metricDetails('Kirli boş (VAC + DI)', x.dirtyEmpty, { className: 'is-danger' })}
-          ${metricDetails('Boş girişli (VAC + Due In)', x.emptyDueIn, { className: 'is-warn' })}
-          ${metricDetails('Boş girişsiz', x.emptyNoDueIn)}
+          ${metricDetails('Toplam oda', x.vacant, { hint: 'Vacant raporundaki oda sayısı' })}
+          ${metricDetails('Dolu oda', x.occupied, { className: 'is-info', hint: 'Room Type = OCC' })}
+          ${metricDetails('Boş oda', x.empty, { className: 'is-info', hint: 'Room Type = VAC' })}
+          ${simpleMetric('Doluluk oranı', percentText(x.occupied.length, totalRooms), 'is-info')}
+          ${simpleMetric('Boş oda oranı', percentText(x.empty.length, totalRooms), 'is-info')}
+          ${metricDetails('Temiz boş oda', x.cleanEmpty, { className: 'is-clean', hint: 'VAC + FO IP' })}
+          ${metricDetails('Kirli boş oda', x.dirtyEmpty, { className: 'is-danger', hint: 'VAC + FO DI' })}
+          ${simpleMetric('Boşların temiz oranı', percentText(x.cleanEmpty.length, x.empty.length), 'is-clean')}
+          ${simpleMetric('Boşların kirli oranı', percentText(x.dirtyEmpty.length, x.empty.length), 'is-danger')}
+          ${metricDetails('FO durumu IP', x.ip, { hint: 'Tüm IP odalar' })}
+          ${metricDetails('FO durumu DI', x.di, { hint: 'Tüm DI odalar' })}
+          ${metricDetails('Dolu + IP', x.occupiedIp, { hint: 'OCC + IP' })}
+          ${metricDetails('Dolu + DI', x.occupiedDi, { hint: 'OCC + DI' })}
         </div>
       </section>
+
       <section class="overview-metric-section">
-        <h3>FO / Rezervasyon</h3>
+        <h3>Rezervasyon ve oda kontrolü</h3>
         <div class="overview-metrics">
-          ${metricDetails('FO IP', x.ip, { className: 'is-clean' })}
-          ${metricDetails('FO DI', x.di, { className: 'is-danger' })}
-          ${metricDetails('Due In', x.dueIn, { className: 'is-warn' })}
-          ${metricDetails('Checked In', x.checkedIn, { className: 'is-info' })}
-          ${metricDetails('Discrepant', x.discrepant, { className: 'is-danger' })}
-          ${metricDetails('Next Blocked', x.nextBlocked)}
-          ${metricDetails('Boş + Next Blocked', x.emptyNextBlocked, { className: 'is-warn' })}
-          ${metricDetails('Nights Vacant > 0', x.nightsVacant)}
+          ${metricDetails('Giriş bekleyen oda', x.dueIn, { className: 'is-warn', hint: 'Reservation = Due In' })}
+          ${metricDetails('Konaklayan / Checked In', x.checkedIn, { className: 'is-info' })}
+          ${metricDetails('Çıkış bekleyen / Due Out', x.dueOut, { className: 'is-warn' })}
+          ${metricDetails('Diğer rezervasyon durumu', x.otherReservation)}
+          ${metricDetails('Boş + giriş bekleyen', x.emptyDueIn, { className: 'is-warn', hint: 'VAC + Due In' })}
+          ${metricDetails('Dolu + giriş bekleyen', x.occupiedDueIn, { className: 'is-warn', hint: 'OCC + Due In' })}
+          ${metricDetails('Uyuşmazlık / Discrepant', x.discrepant, { className: 'is-danger' })}
+          ${metricDetails('Sonraki rezervasyon bloklu', x.nextBlocked, { hint: 'Next Blocked dolu' })}
+          ${metricDetails('Boş + sonraki bloklu', x.emptyNextBlocked, { className: 'is-warn' })}
+          ${metricDetails('Dolu + sonraki bloklu', x.occupiedNextBlocked)}
+          ${metricDetails('Boş kalma gecesi > 0', x.nightsVacant)}
+          ${simpleMetric('Toplam boş kalma gecesi', x.nightsVacantSum)}
+          ${simpleMetric('Ortalama boş kalma gecesi', decimalText(x.nightsVacantAvg))}
+          ${simpleMetric('En uzun boş kalma', x.nightsVacantMax)}
         </div>
       </section>
+
       <section class="overview-metric-section">
-        <h3>Bugünkü Operasyon</h3>
+        <h3>Bugünkü girişler</h3>
         <div class="overview-metrics">
-          ${metricDetails('Arrivals', x.arrivals, { className: 'is-info' })}
-          ${metricDetails('Departures', x.departures, { className: 'is-info' })}
-          ${metricDetails('Aynı gün giriş + çıkış', x.sameDay, { className: 'is-warn' })}
-          ${metricDetails('Geç çıkış', x.lateDepartures, { className: 'is-warn' })}
-          ${simpleMetric('Arrivals kişi', recordPaxTotal(x.arrivals))}
-          ${simpleMetric('Departures kişi', recordPaxTotal(x.departures))}
+          ${metricDetails('Giriş yapacak oda', x.arrivals, { className: 'is-info', hint: 'Arrivals oda sayısı' })}
+          ${simpleMetric('Giriş yetişkin', arrivalAdults)}
+          ${simpleMetric('Giriş çocuk', arrivalChildren)}
+          ${simpleMetric('Giriş toplam kişi', arrivalAdults + arrivalChildren, 'is-info')}
+          ${metricDetails('Çocuklu giriş odası', x.arrivalsWithChildren)}
+          ${metricDetails('ETA bilgisi olmayan', x.arrivalsNoEta, { className: 'is-warn' })}
+          ${metricDetails('Giriş listesinde ve boş', x.arrivalsEmpty, { className: 'is-warn', hint: 'Arrivals ∩ VAC' })}
+          ${metricDetails('Giriş listesinde ve dolu', x.arrivalsOccupied, { hint: 'Arrivals ∩ OCC' })}
+          ${metricDetails('Girişe hazır temiz boş', x.arrivalsCleanEmpty, { className: 'is-clean', hint: 'Arrivals ∩ VAC + IP' })}
+          ${metricDetails('Giriş var ama oda kirli boş', x.arrivalsDirtyEmpty, { className: 'is-danger', hint: 'Arrivals ∩ VAC + DI' })}
+          ${metricDetails('Giriş listesinde, Vacantta yok', x.arrivalsNotInVacant, { className: 'is-warn' })}
+        </div>
+      </section>
+
+      <section class="overview-metric-section">
+        <h3>Bugünkü çıkışlar</h3>
+        <div class="overview-metrics">
+          ${metricDetails('Çıkış yapacak oda', x.departures, { className: 'is-info', hint: 'Departures oda sayısı' })}
+          ${simpleMetric('Çıkış yetişkin', departureAdults)}
+          ${simpleMetric('Çıkış çocuk', departureChildren)}
+          ${simpleMetric('Çıkış toplam kişi', departureAdults + departureChildren, 'is-info')}
+          ${metricDetails('Çocuklu çıkış odası', x.departuresWithChildren)}
+          ${metricDetails('Geç çıkış', x.lateDepartures, { className: 'is-warn', hint: `ETD ≥ ${appSettings.etdLateTime || ETD_HIGHLIGHT}` })}
+          ${metricDetails('ETD bilgisi olmayan', x.departuresNoEtd, { className: 'is-warn' })}
+          ${metricDetails('Çıkış listesinde hâlâ dolu', x.departuresOccupied, { className: 'is-warn', hint: 'Departures ∩ OCC' })}
+          ${metricDetails('Çıkış listesinde boş', x.departuresEmpty, { hint: 'Departures ∩ VAC' })}
+          ${metricDetails('Çıkış listesinde, Vacantta yok', x.departuresNotInVacant, { className: 'is-warn' })}
+        </div>
+      </section>
+
+      <section class="overview-metric-section overview-critical-section">
+        <h3>Kritik operasyon kontrolleri</h3>
+        <div class="overview-metrics">
+          ${metricDetails('Aynı gün giriş + çıkış', x.sameDay, { className: 'is-warn', hint: 'Turnover oda' })}
+          ${metricDetails('Boş ama giriş listesinde yok', x.emptyNoArrival, { hint: 'VAC − Arrivals' })}
+          ${metricDetails('Temiz ama giriş listesinde yok', x.cleanEmptyNoArrival, { className: 'is-clean', hint: 'VAC + IP − Arrivals' })}
+          ${metricDetails('Kirli ama giriş listesinde yok', x.dirtyEmptyNoArrival, { className: 'is-danger', hint: 'VAC + DI − Arrivals' })}
+          ${simpleMetric('Bugünkü oda hareketi', x.arrivals.length + x.departures.length, '', 'Giriş + çıkış kayıt toplamı')}
+          ${simpleMetric('Net oda hareketi', x.arrivals.length - x.departures.length, '', 'Giriş oda − çıkış oda')}
         </div>
       </section>
     </div>
@@ -2145,31 +2268,70 @@ function renderOperationsOverview({ error = '' } = {}) {
     operationsOverview.innerHTML = `<div class="overview-empty">${escapeHtml(error)}</div>`;
     return;
   }
+
   const totals = CHIEF_GROUPS.map(overviewGroupStats);
-  const sum = key => totals.reduce((acc, item) => acc + item[key].length, 0);
-  const arrivalsCount = sum('arrivals');
-  const departuresCount = sum('departures');
-  const vacantCount = sum('vacant');
+  const sumRows = key => totals.reduce((acc, item) => acc + (item[key]?.length || 0), 0);
+  const sumNum = key => totals.reduce((acc, item) => acc + Number(item[key] || 0), 0);
+  const arrivalsCount = sumRows('arrivals');
+  const departuresCount = sumRows('departures');
+  const vacantCount = sumRows('vacant');
+
   if (!arrivalsCount && !departuresCount && !vacantCount) {
-    operationsOverview.innerHTML = `<div class="overview-head"><div><h2>Operasyon Özeti</h2><p>1000 / 2000 / 3000 / 4000 / 5000 ayrı gösterilir.</p></div><button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button></div><div class="overview-empty">Bugüne ait özet verisi yok. İndirilenler klasörünü bağla veya Arrivals / Departures / Vacant dosyalarını yükle.</div>`;
+    operationsOverview.innerHTML = `<div class="overview-head"><div><h2>Günlük Oda ve Operasyon Özeti</h2><p>1000, 2000, 3000, 4000 ve 5000 bölgeleri ayrı ayrı gösterilir.</p></div><button type="button" class="overview-refresh-btn" data-overview-refresh>Verileri Yenile</button></div><div class="overview-empty">Bugüne ait özet verisi yok. İndirilenler klasörünü bağla veya bugünün Arrivals, Departures ve Vacant dosyalarını yükle.</div>`;
     return;
   }
-  const sourceBits = ['arrivals','departures','vacant'].map(key => overviewSources[key]?.length ? `${key === 'arrivals' ? 'Arrivals' : key === 'departures' ? 'Departures' : 'Vacant'}: ${overviewSources[key].join(', ')}` : '').filter(Boolean);
+
+  const occupiedCount = sumRows('occupied');
+  const emptyCount = sumRows('empty');
+  const cleanEmptyCount = sumRows('cleanEmpty');
+  const dirtyEmptyCount = sumRows('dirtyEmpty');
+  const arrivalsClean = sumRows('arrivalsCleanEmpty');
+  const arrivalsDirty = sumRows('arrivalsDirtyEmpty');
+  const sameDayCount = sumRows('sameDay');
+  const lateCount = sumRows('lateDepartures');
+  const discrepantCount = sumRows('discrepant');
+  const nextBlockedCount = sumRows('nextBlocked');
+  const cleanNoArrivalCount = sumRows('cleanEmptyNoArrival');
+  const arrivalAdults = totals.reduce((acc, x) => acc + recordAdultsTotal(x.arrivals), 0);
+  const arrivalChildren = totals.reduce((acc, x) => acc + recordChildrenTotal(x.arrivals), 0);
+  const departureAdults = totals.reduce((acc, x) => acc + recordAdultsTotal(x.departures), 0);
+  const departureChildren = totals.reduce((acc, x) => acc + recordChildrenTotal(x.departures), 0);
+  const sourceBits = ['arrivals','departures','vacant'].map(key => overviewSources[key]?.length ? `${key === 'arrivals' ? 'Giriş' : key === 'departures' ? 'Çıkış' : 'Vacant'}: ${overviewSources[key].join(', ')}` : '').filter(Boolean);
+
   operationsOverview.innerHTML = `
     <div class="overview-head">
-      <div><h2>Operasyon Özeti</h2><p>Bugünün Arrivals, Departures ve Vacant verileri • 1000–5000 grupları ayrı</p></div>
-      <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+      <div>
+        <h2>Günlük Oda ve Operasyon Özeti</h2>
+        <p>Bugünün giriş, çıkış ve Vacant verileri • 1000–5000 bölgeleri ayrı • Kutulara dokununca oda numaraları açılır.</p>
+      </div>
+      <button type="button" class="overview-refresh-btn" data-overview-refresh>Verileri Yenile</button>
     </div>
+
+    <div class="overview-summary-label">GENEL TOPLAMLAR</div>
     <div class="overview-total-grid">
       <div class="overview-total-card"><strong>${vacantCount}</strong><span>Toplam oda</span></div>
-      <div class="overview-total-card occupied"><strong>${sum('occupied')}</strong><span>Dolu OCC</span></div>
-      <div class="overview-total-card vacant"><strong>${sum('empty')}</strong><span>Boş VAC</span></div>
-      <div class="overview-total-card clean"><strong>${sum('cleanEmpty')}</strong><span>Temiz boş</span></div>
-      <div class="overview-total-card"><strong>${arrivalsCount}</strong><span>Arrivals</span></div>
-      <div class="overview-total-card"><strong>${departuresCount}</strong><span>Departures</span></div>
+      <div class="overview-total-card occupied"><strong>${occupiedCount}</strong><span>Dolu oda</span><small>${percentText(occupiedCount, vacantCount)}</small></div>
+      <div class="overview-total-card vacant"><strong>${emptyCount}</strong><span>Boş oda</span><small>${percentText(emptyCount, vacantCount)}</small></div>
+      <div class="overview-total-card clean"><strong>${cleanEmptyCount}</strong><span>Temiz boş</span><small>${percentText(cleanEmptyCount, emptyCount)} / boşlar</small></div>
+      <div class="overview-total-card danger"><strong>${dirtyEmptyCount}</strong><span>Kirli boş</span><small>${percentText(dirtyEmptyCount, emptyCount)} / boşlar</small></div>
+      <div class="overview-total-card"><strong>${arrivalsCount}</strong><span>Bugünkü giriş oda</span></div>
+      <div class="overview-total-card"><strong>${arrivalAdults + arrivalChildren}</strong><span>Giriş toplam kişi</span><small>${arrivalAdults} yetişkin • ${arrivalChildren} çocuk</small></div>
+      <div class="overview-total-card"><strong>${departuresCount}</strong><span>Bugünkü çıkış oda</span></div>
+      <div class="overview-total-card"><strong>${departureAdults + departureChildren}</strong><span>Çıkış toplam kişi</span><small>${departureAdults} yetişkin • ${departureChildren} çocuk</small></div>
+      <div class="overview-total-card warn"><strong>${sameDayCount}</strong><span>Aynı gün giriş + çıkış</span></div>
+      <div class="overview-total-card clean"><strong>${arrivalsClean}</strong><span>Girişe hazır temiz oda</span></div>
+      <div class="overview-total-card danger"><strong>${arrivalsDirty}</strong><span>Giriş var, oda kirli</span></div>
+      <div class="overview-total-card warn"><strong>${lateCount}</strong><span>Geç çıkış</span></div>
+      <div class="overview-total-card danger"><strong>${discrepantCount}</strong><span>Uyuşmazlık / Discrepant</span></div>
+      <div class="overview-total-card warn"><strong>${nextBlockedCount}</strong><span>Sonraki rezervasyon bloklu</span></div>
+      <div class="overview-total-card clean"><strong>${cleanNoArrivalCount}</strong><span>Temiz ama giriş listesinde yok</span></div>
+      <div class="overview-total-card"><strong>${sumNum('nightsVacantSum')}</strong><span>Toplam boş kalma gecesi</span></div>
+      <div class="overview-total-card"><strong>${arrivalsCount + departuresCount}</strong><span>Toplam oda hareketi</span><small>Giriş + çıkış</small></div>
     </div>
+
+    <div class="overview-summary-label">BÖLGE DETAYLARI</div>
     <div class="overview-groups">${CHIEF_GROUPS.map(renderOverviewGroup).join('')}</div>
-    <div class="overview-source-note">${sourceBits.length ? escapeHtml(sourceBits.join(' • ')) : 'Kaynak: yüklenen veriler'}</div>`;
+    <div class="overview-source-note">${sourceBits.length ? escapeHtml(sourceBits.join(' • ')) : 'Kaynak: bugün yüklenen veriler'}</div>`;
 }
 
 async function loadOverviewWorkbookGroups(items, mode) {
