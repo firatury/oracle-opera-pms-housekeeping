@@ -21,6 +21,8 @@ const assignmentStatus = document.getElementById('assignmentStatus');
 const appTitle = document.getElementById('appTitle');
 const departuresModeBtn = document.getElementById('departuresModeBtn');
 const arrivalsModeBtn = document.getElementById('arrivalsModeBtn');
+const overviewModeBtn = document.getElementById('overviewModeBtn');
+const operationsOverview = document.getElementById('operationsOverview');
 const dndModeBtn = document.getElementById('dndModeBtn');
 const vacantModeBtn = document.getElementById('vacantModeBtn');
 const lateCoutModeBtn = document.getElementById('lateCoutModeBtn');
@@ -96,6 +98,12 @@ let downloadsScanTimer = null;
 let autoDownloadFiles = { arrivals: [], departures: [], vacant: [] };
 let downloadsFallbackFiles = [];
 let downloadsUsingFallback = false;
+
+/* ---------- Operasyon özeti ---------- */
+let overviewActive = false;
+let overviewBusy = false;
+let overviewData = { arrivals: new Map(), departures: new Map(), vacant: new Map() };
+let overviewSources = { arrivals: [], departures: [], vacant: [] };
 
 
 const FIELD_DEFS = [
@@ -1972,6 +1980,259 @@ async function readVacantPdfFile(file) {
 }
 
 
+function groupsFromRoomRecords(records = []) {
+  const groups = new Map();
+  [...records].filter(Boolean).forEach(record => {
+    const group = roomGroup(record.room);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(record);
+  });
+  groups.forEach(rows => rows.sort((a, b) => roomSortValue(a.room) - roomSortValue(b.room)));
+  return new Map([...groups.entries()].sort((a, b) => groupSortValue(a[0]) - groupSortValue(b[0])));
+}
+
+function flattenRecordGroups(groups) {
+  return [...(groups?.values?.() || [])].flat();
+}
+
+function cloneGroups(groups) {
+  return new Map([...(groups || new Map()).entries()].map(([key, rows]) => [key, [...rows]]));
+}
+
+function rememberOverviewGroups(mode, groups, sourceNames = []) {
+  if (![MODE_ARRIVALS, MODE_DEPARTURES, MODE_VACANT].includes(mode) || !groups?.size) return;
+  overviewData[mode] = cloneGroups(groups);
+  if (sourceNames.length) overviewSources[mode] = [...sourceNames];
+  if (overviewActive) renderOperationsOverview();
+}
+
+function canonicalVacantType(record) {
+  return canonical(record?.roomType || '');
+}
+
+function canonicalFoStatus(record) {
+  return canonical(record?.foStatus || '');
+}
+
+function canonicalReservationStatus(record) {
+  return canonical(record?.reservationStatus || '');
+}
+
+function isVacantRoom(record) { return canonicalVacantType(record) === 'vac'; }
+function isOccupiedRoom(record) { return canonicalVacantType(record) === 'occ'; }
+function isIpRoom(record) { return canonicalFoStatus(record) === 'ip'; }
+function isDiRoom(record) { return canonicalFoStatus(record) === 'di'; }
+function isDueInRoom(record) { return canonicalReservationStatus(record) === 'due in'; }
+function isCheckedInRoom(record) { return canonicalReservationStatus(record) === 'checked in'; }
+
+function numericCount(value) {
+  const n = Number(String(value ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/)?.[0] || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function recordPaxTotal(rows = []) {
+  return rows.reduce((sum, record) => sum + numericCount(record.adults) + numericCount(record.children), 0);
+}
+
+function roomList(rows = []) {
+  return [...new Set(rows.map(row => normalizeRoomId(row.room)).filter(Boolean))]
+    .sort((a, b) => roomSortValue(a) - roomSortValue(b));
+}
+
+function intersectRoomRows(rowsA = [], rowsB = []) {
+  const other = new Set(roomList(rowsB));
+  return rowsA.filter(row => other.has(normalizeRoomId(row.room)));
+}
+
+function metricDetails(label, rows, { value = null, className = '' } = {}) {
+  const rooms = roomList(rows);
+  const displayValue = value === null ? rooms.length : value;
+  const roomText = rooms.length ? rooms.join(', ') : 'Oda yok';
+  return `<details class="overview-metric ${className}">
+    <summary><span class="metric-label">${escapeHtml(label)}</span><span class="metric-value">${escapeHtml(displayValue)}</span></summary>
+    <div class="room-list">${escapeHtml(roomText)}</div>
+  </details>`;
+}
+
+function simpleMetric(label, value, className = '') {
+  return `<div class="overview-metric ${className}"><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
+}
+
+function overviewGroupStats(groupName) {
+  const arrivals = overviewData.arrivals.get(groupName) || [];
+  const departures = overviewData.departures.get(groupName) || [];
+  const vacant = overviewData.vacant.get(groupName) || [];
+  const occupied = vacant.filter(isOccupiedRoom);
+  const empty = vacant.filter(isVacantRoom);
+  const ip = vacant.filter(isIpRoom);
+  const di = vacant.filter(isDiRoom);
+  const cleanEmpty = vacant.filter(row => isVacantRoom(row) && isIpRoom(row));
+  const dirtyEmpty = vacant.filter(row => isVacantRoom(row) && isDiRoom(row));
+  const dueIn = vacant.filter(isDueInRoom);
+  const checkedIn = vacant.filter(isCheckedInRoom);
+  const emptyDueIn = vacant.filter(row => isVacantRoom(row) && isDueInRoom(row));
+  const emptyNoDueIn = vacant.filter(row => isVacantRoom(row) && !isDueInRoom(row));
+  const discrepant = vacant.filter(row => {
+    const value = canonical(row.discrepantStatus || '');
+    return value && value !== '0' && value !== '-';
+  });
+  const nextBlocked = vacant.filter(row => clean(row.nextBlocked));
+  const emptyNextBlocked = vacant.filter(row => isVacantRoom(row) && clean(row.nextBlocked));
+  const nightsVacant = vacant.filter(row => numericCount(row.nightsVacant) > 0);
+  const sameDay = intersectRoomRows(arrivals, departures);
+  const lateDepartures = departures.filter(record => {
+    const etd = clean(record.etd);
+    if (!etd) return false;
+    const [h, m] = etd.split(':').map(Number);
+    const [th, tm] = String(appSettings.etdLateTime || ETD_HIGHLIGHT).split(':').map(Number);
+    if (![h, m, th, tm].every(Number.isFinite)) return etd === ETD_HIGHLIGHT;
+    return h * 60 + m >= th * 60 + tm;
+  });
+  return { arrivals, departures, vacant, occupied, empty, ip, di, cleanEmpty, dirtyEmpty, dueIn, checkedIn, emptyDueIn, emptyNoDueIn, discrepant, nextBlocked, emptyNextBlocked, nightsVacant, sameDay, lateDepartures };
+}
+
+function renderOverviewGroup(groupName) {
+  const x = overviewGroupStats(groupName);
+  const totalRooms = x.vacant.length;
+  return `<article class="overview-group-card">
+    <div class="overview-group-head"><strong>${escapeHtml(groupName)}</strong><span>${totalRooms ? `${totalRooms} oda raporda` : 'Vacant verisi yok'}</span></div>
+    <div class="overview-metric-sections">
+      <section class="overview-metric-section">
+        <h3>Oda Durumu</h3>
+        <div class="overview-metrics">
+          ${metricDetails('Toplam oda', x.vacant)}
+          ${metricDetails('Dolu (OCC)', x.occupied, { className: 'is-info' })}
+          ${metricDetails('Boş (VAC)', x.empty, { className: 'is-info' })}
+          ${metricDetails('Temiz boş (VAC + IP)', x.cleanEmpty, { className: 'is-clean' })}
+          ${metricDetails('Kirli boş (VAC + DI)', x.dirtyEmpty, { className: 'is-danger' })}
+          ${metricDetails('Boş girişli (VAC + Due In)', x.emptyDueIn, { className: 'is-warn' })}
+          ${metricDetails('Boş girişsiz', x.emptyNoDueIn)}
+        </div>
+      </section>
+      <section class="overview-metric-section">
+        <h3>FO / Rezervasyon</h3>
+        <div class="overview-metrics">
+          ${metricDetails('FO IP', x.ip, { className: 'is-clean' })}
+          ${metricDetails('FO DI', x.di, { className: 'is-danger' })}
+          ${metricDetails('Due In', x.dueIn, { className: 'is-warn' })}
+          ${metricDetails('Checked In', x.checkedIn, { className: 'is-info' })}
+          ${metricDetails('Discrepant', x.discrepant, { className: 'is-danger' })}
+          ${metricDetails('Next Blocked', x.nextBlocked)}
+          ${metricDetails('Boş + Next Blocked', x.emptyNextBlocked, { className: 'is-warn' })}
+          ${metricDetails('Nights Vacant > 0', x.nightsVacant)}
+        </div>
+      </section>
+      <section class="overview-metric-section">
+        <h3>Bugünkü Operasyon</h3>
+        <div class="overview-metrics">
+          ${metricDetails('Arrivals', x.arrivals, { className: 'is-info' })}
+          ${metricDetails('Departures', x.departures, { className: 'is-info' })}
+          ${metricDetails('Aynı gün giriş + çıkış', x.sameDay, { className: 'is-warn' })}
+          ${metricDetails('Geç çıkış', x.lateDepartures, { className: 'is-warn' })}
+          ${simpleMetric('Arrivals kişi', recordPaxTotal(x.arrivals))}
+          ${simpleMetric('Departures kişi', recordPaxTotal(x.departures))}
+        </div>
+      </section>
+    </div>
+  </article>`;
+}
+
+function renderOperationsOverview({ error = '' } = {}) {
+  if (!operationsOverview) return;
+  operationsOverview.hidden = !overviewActive;
+  if (!overviewActive) return;
+  if (error) {
+    operationsOverview.innerHTML = `<div class="overview-empty">${escapeHtml(error)}</div>`;
+    return;
+  }
+  const totals = CHIEF_GROUPS.map(overviewGroupStats);
+  const sum = key => totals.reduce((acc, item) => acc + item[key].length, 0);
+  const arrivalsCount = sum('arrivals');
+  const departuresCount = sum('departures');
+  const vacantCount = sum('vacant');
+  if (!arrivalsCount && !departuresCount && !vacantCount) {
+    operationsOverview.innerHTML = `<div class="overview-head"><div><h2>Operasyon Özeti</h2><p>1000 / 2000 / 3000 / 4000 / 5000 ayrı gösterilir.</p></div><button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button></div><div class="overview-empty">Bugüne ait özet verisi yok. İndirilenler klasörünü bağla veya Arrivals / Departures / Vacant dosyalarını yükle.</div>`;
+    return;
+  }
+  const sourceBits = ['arrivals','departures','vacant'].map(key => overviewSources[key]?.length ? `${key === 'arrivals' ? 'Arrivals' : key === 'departures' ? 'Departures' : 'Vacant'}: ${overviewSources[key].join(', ')}` : '').filter(Boolean);
+  operationsOverview.innerHTML = `
+    <div class="overview-head">
+      <div><h2>Operasyon Özeti</h2><p>Bugünün Arrivals, Departures ve Vacant verileri • 1000–5000 grupları ayrı</p></div>
+      <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+    </div>
+    <div class="overview-total-grid">
+      <div class="overview-total-card"><strong>${vacantCount}</strong><span>Toplam oda</span></div>
+      <div class="overview-total-card occupied"><strong>${sum('occupied')}</strong><span>Dolu OCC</span></div>
+      <div class="overview-total-card vacant"><strong>${sum('empty')}</strong><span>Boş VAC</span></div>
+      <div class="overview-total-card clean"><strong>${sum('cleanEmpty')}</strong><span>Temiz boş</span></div>
+      <div class="overview-total-card"><strong>${arrivalsCount}</strong><span>Arrivals</span></div>
+      <div class="overview-total-card"><strong>${departuresCount}</strong><span>Departures</span></div>
+    </div>
+    <div class="overview-groups">${CHIEF_GROUPS.map(renderOverviewGroup).join('')}</div>
+    <div class="overview-source-note">${sourceBits.length ? escapeHtml(sourceBits.join(' • ')) : 'Kaynak: yüklenen veriler'}</div>`;
+}
+
+async function loadOverviewWorkbookGroups(items, mode) {
+  const loaded = [];
+  for (const item of items || []) {
+    const file = item?.file || item;
+    if (!file) continue;
+    try {
+      const workbook = await readWorkbookForAutoDetection(file);
+      loaded.push({ name: file.name, workbook, lastModified: Number(file.lastModified || 0), size: Number(file.size || 0) });
+    } catch (error) { console.warn('Özet Excel okunamadı:', file.name, error); }
+  }
+  return loaded.length ? mergeWorkbookGroups(loaded, mode) : new Map();
+}
+
+async function loadOverviewVacantGroups(items) {
+  const loaded = [];
+  for (const item of items || []) {
+    const file = item?.file || item;
+    if (!file) continue;
+    try { loaded.push(await readVacantPdfFile(file)); }
+    catch (error) { console.warn('Özet Vacant okunamadı:', file.name, error); }
+  }
+  return loaded.length ? mergeVacantRecordItems(loaded) : new Map();
+}
+
+async function refreshOperationsOverview({ useAutoFiles = true } = {}) {
+  if (overviewBusy) return;
+  overviewBusy = true;
+  if (overviewActive && operationsOverview) operationsOverview.innerHTML = '<div class="overview-loading">Bugünün özet verileri hazırlanıyor…</div>';
+  try {
+    if (useAutoFiles) {
+      const [arrivals, departures, vacant] = await Promise.all([
+        loadOverviewWorkbookGroups(autoDownloadFiles.arrivals, MODE_ARRIVALS),
+        loadOverviewWorkbookGroups(autoDownloadFiles.departures, MODE_DEPARTURES),
+        loadOverviewVacantGroups(autoDownloadFiles.vacant),
+      ]);
+      if (arrivals.size) { overviewData.arrivals = arrivals; overviewSources.arrivals = autoDownloadFiles.arrivals.map(x => x.file.name); }
+      if (departures.size) { overviewData.departures = departures; overviewSources.departures = autoDownloadFiles.departures.map(x => x.file.name); }
+      if (vacant.size) { overviewData.vacant = vacant; overviewSources.vacant = autoDownloadFiles.vacant.map(x => x.file.name); }
+    }
+    renderOperationsOverview();
+  } catch (error) {
+    console.error(error);
+    renderOperationsOverview({ error: error.message || 'Özet hazırlanamadı.' });
+  } finally { overviewBusy = false; }
+}
+
+function setOverviewActive(active) {
+  overviewActive = Boolean(active);
+  document.body.classList.toggle('overview-active', overviewActive);
+  overviewModeBtn?.classList.toggle('active', overviewActive);
+  overviewModeBtn?.setAttribute('aria-pressed', String(overviewActive));
+  if (operationsOverview) operationsOverview.hidden = !overviewActive;
+  if (overviewActive) {
+    arrivalsModeBtn.classList.remove('active');
+    departuresModeBtn.classList.remove('active');
+    refreshOperationsOverview({ useAutoFiles: true });
+  } else {
+    updateModeUi();
+  }
+}
+
 function isVacantCleanRecord(record) {
   const roomType = canonical(record?.roomType || '');
   const foStatus = canonical(record?.foStatus || '');
@@ -2027,20 +2288,22 @@ async function handleArrivalsVacantPdfs(files) {
 
     const uniqueRooms = new Set();
     const cleanRecords = new Map();
+    const allVacantRecords = new Map();
     const usedNames = [];
     // En güncel dosya önce işlensin; aynı oda birden fazla PDF'de varsa en güncel satır korunur.
     const sortedFiles = [...fileList].sort((a, b) => Number(b?.lastModified || 0) - Number(a?.lastModified || 0));
     for (const file of sortedFiles) {
       try {
         const item = await readVacantPdfFile(file);
-        item.records
-          .filter(isVacantCleanRecord)
-          .forEach(record => {
-            const room = normalizeRoomId(record.room);
-            if (!room) return;
+        item.records.forEach(record => {
+          const room = normalizeRoomId(record.room);
+          if (!room) return;
+          if (!allVacantRecords.has(room)) allVacantRecords.set(room, { ...record, room });
+          if (isVacantCleanRecord(record)) {
             uniqueRooms.add(room);
             if (!cleanRecords.has(room)) cleanRecords.set(room, { ...record, room });
-          });
+          }
+        });
         usedNames.push(item.name);
       } catch (error) {
         console.warn('Vacant PDF atlandı:', file.name, error);
@@ -2051,6 +2314,8 @@ async function handleArrivalsVacantPdfs(files) {
 
     greenRooms = uniqueRooms;
     vacantCleanRecordsByRoom = cleanRecords;
+    overviewData.vacant = groupsFromRoomRecords([...allVacantRecords.values()]);
+    overviewSources.vacant = [...usedNames];
     vacantRoomsFileName = usedNames.length <= 1 ? (usedNames[0] || '') : `${usedNames.length} Vacant PDF`;
     if (greenRoomsInput) greenRoomsInput.value = sortedGreenRoomList().join(', ');
 
@@ -2826,6 +3091,7 @@ function processCurrentWorkbook(message = '') {
       const itemsToProcess = lastWorkbooks.length ? lastWorkbooks : [];
       originalGroups = mergeVacantRecordItems(itemsToProcess);
       printableGroups = new Map(originalGroups);
+      rememberOverviewGroups(MODE_VACANT, originalGroups, itemsToProcess.map(item => item.name).filter(Boolean));
       resetAssignmentsForNewData();
       updateOutput(message || `${lastFileName} ${modeLabel()} olarak işlendi.`);
       return;
@@ -2855,6 +3121,7 @@ function processCurrentWorkbook(message = '') {
     const workbooksToProcess = lastWorkbooks.length ? lastWorkbooks : [{ workbook: lastWorkbook, name: lastFileName }];
     originalGroups = mergeWorkbookGroups(workbooksToProcess, currentMode);
     printableGroups = new Map(originalGroups);
+    rememberOverviewGroups(currentMode, originalGroups, workbooksToProcess.map(item => item.name).filter(Boolean));
     resetAssignmentsForNewData();
     updateOutput(message || `${lastFileName} ${modeLabel()} olarak işlendi.`);
   } catch (error) {
@@ -3112,6 +3379,7 @@ async function scanDownloadsFolder({ force = false, autoApply = true } = {}) {
     setDownloadsAutoStatus('İndirilenler taranıyor…', 'loading');
     const files = await collectDownloadsCandidates(downloadsDirectoryHandle);
     await classifyDownloadsFiles(files);
+    if (overviewActive) await refreshOperationsOverview({ useAutoFiles: true });
     if (!files.length) {
       setDownloadsAutoStatus(`${todayFileOnlyMessage()} Bugüne ait uygun Excel/PDF bulunamadı.`, 'error');
     } else {
@@ -3151,6 +3419,7 @@ async function applyFallbackDownloadsFiles(files) {
   try {
     list.sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0));
     await classifyDownloadsFiles(list);
+    if (overviewActive) await refreshOperationsOverview({ useAutoFiles: true });
     setDownloadsAutoStatus(`Klasör seçildi • ${todayFileOnlyMessage()} • ${downloadsSummaryText()}`, 'ok');
     await applyAutoDownloadsForCurrentMode({ silentMissing: true });
   } catch (error) {
@@ -3396,8 +3665,10 @@ function clearAll() {
 function updateModeUi() {
   appTitle.textContent = modeLabel();
   document.title = modeLabel();
-  departuresModeBtn.classList.toggle('active', currentMode === MODE_DEPARTURES);
-  arrivalsModeBtn.classList.toggle('active', currentMode === MODE_ARRIVALS);
+  departuresModeBtn.classList.toggle('active', !overviewActive && currentMode === MODE_DEPARTURES);
+  arrivalsModeBtn.classList.toggle('active', !overviewActive && currentMode === MODE_ARRIVALS);
+  overviewModeBtn?.classList.toggle('active', overviewActive);
+  overviewModeBtn?.setAttribute('aria-pressed', String(overviewActive));
   dndModeBtn?.classList.toggle('active', currentMode === MODE_DND);
   vacantModeBtn?.classList.toggle('active', currentMode === MODE_VACANT);
   lateCoutModeBtn?.classList.toggle('active', currentMode === MODE_LATECOUT);
@@ -3451,7 +3722,8 @@ function hasLoadedMainFile() {
 
 function switchModeAndMaybeClear(mode) {
   if (![MODE_DEPARTURES, MODE_ARRIVALS].includes(mode)) return;
-  if (mode === currentMode) return;
+  if (overviewActive) setOverviewActive(false);
+  if (mode === currentMode) { updateModeUi(); return; }
 
   const previousMode = currentMode;
   const hadData = hasLoadedMainFile();
@@ -3967,6 +4239,10 @@ startDndBtn?.addEventListener('click', () => selectModeFromMenu(MODE_DND));
 backMenuBtn?.addEventListener('click', showStartMenu);
 departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
+overviewModeBtn?.addEventListener('click', () => setOverviewActive(true));
+operationsOverview?.addEventListener('click', event => {
+  if (event.target.closest('[data-overview-refresh]')) refreshOperationsOverview({ useAutoFiles: true });
+});
 dndModeBtn?.addEventListener('click', () => setMode(MODE_DND));
 vacantModeBtn?.addEventListener('click', () => setMode(MODE_VACANT));
 lateCoutModeBtn?.addEventListener('click', () => setMode(MODE_LATECOUT));

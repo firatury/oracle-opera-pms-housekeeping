@@ -15,6 +15,7 @@
         <div class="mode-menu" role="tablist" aria-label="Liste türü seçimi">
           <button id="arrivalsModeBtn" class="mode-btn active" type="button" aria-pressed="true">Arrivals</button>
           <button id="departuresModeBtn" class="mode-btn" type="button" aria-pressed="false">Departures</button>
+          <button id="overviewModeBtn" class="mode-btn overview-mode-btn" type="button" aria-pressed="false">Özet</button>
         </div>
       </div>
       <h1 id="appTitle" class="app-title">Arrivals</h1>
@@ -62,6 +63,10 @@
       </div>
 
       <div id="status" class="status">Henüz dosya yüklenmedi.</div>
+    </section>
+
+    <section id="operationsOverview" class="operations-overview no-print" hidden>
+      <div class="overview-loading">Özet hazırlanıyor…</div>
     </section>
 
     <section id="summary" class="summary no-print" hidden></section>
