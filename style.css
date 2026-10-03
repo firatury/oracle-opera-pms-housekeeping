@@ -1902,10 +1902,9 @@ table.lc-table {
 .overview-row-arrivals td { background: #eef6fc; }
 .overview-row-departures td { background: #f4f1fb; }
 
+/* Toplam sütunu 1000-5000 sütunlarıyla aynı görünür. */
 .overview-simple-table .overview-total-col {
   font-weight: 900;
-  border-left: 2px solid #b8aca2;
-  background: #f4eee8 !important;
 }
 
 @media (max-width: 720px) {
@@ -1914,4 +1913,80 @@ table.lc-table {
   .overview-simple-table td { padding: 12px 9px; }
   .overview-simple-table thead th:first-child { width: 160px; }
   .overview-simple-table tbody td { font-size: 21px; }
+}
+
+
+/* Günlük Özet: yazdırma ve başlık aksiyonları */
+.overview-head-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.overview-print-btn {
+  min-height: 38px;
+  background: #263746;
+  color: #fff;
+  box-shadow: none;
+}
+.overview-print-btn:disabled { opacity: .45; }
+
+@media (max-width: 560px) {
+  .overview-head-actions { width: 100%; margin-top: 10px; }
+  .overview-head-actions button { flex: 1 1 0; }
+  .overview-refresh-btn { margin-top: 0; }
+}
+
+@media print {
+  body.printing-overview .app-shell {
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+  }
+  body.printing-overview .app-shell > *:not(#operationsOverview) {
+    display: none !important;
+  }
+  body.printing-overview #operationsOverview,
+  body.printing-overview .operations-overview.no-print {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-overview .overview-head {
+    display: block !important;
+    margin: 0 0 8mm !important;
+  }
+  body.printing-overview .overview-head h2 {
+    font-size: 20px !important;
+    color: #111 !important;
+  }
+  body.printing-overview .overview-head p {
+    font-size: 10px !important;
+    color: #444 !important;
+  }
+  body.printing-overview .overview-head-actions { display: none !important; }
+  body.printing-overview .overview-simple-wrap {
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: 1px solid #666 !important;
+  }
+  body.printing-overview .overview-simple-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+  }
+  body.printing-overview .overview-simple-table th,
+  body.printing-overview .overview-simple-table td {
+    padding: 8px 5px !important;
+    border-color: #777 !important;
+  }
+  body.printing-overview .overview-simple-table thead th {
+    background: #2f2b28 !important;
+    color: #fff !important;
+    font-size: 11px !important;
+  }
+  body.printing-overview .overview-simple-table thead th:first-child { width: 35mm !important; }
+  body.printing-overview .overview-simple-table tbody th { font-size: 10px !important; }
+  body.printing-overview .overview-simple-table tbody td { font-size: 16px !important; }
+  body.printing-overview .overview-simple-table .overview-total-col { border-left: 1px solid #777 !important; }
 }

@@ -2283,7 +2283,10 @@ function renderOperationsOverview({ error = '' } = {}) {
           <h2>Günlük Oda Özeti</h2>
           <p>1000–5000 bölgeleri için temel operasyon sayıları.</p>
         </div>
-        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+        <div class="overview-head-actions">
+          <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+          <button type="button" class="overview-print-btn" disabled>Yazdır / PDF Al</button>
+        </div>
       </div>
       <div class="overview-empty">Bugüne ait Arrivals, Departures veya Vacant verisi bulunamadı.</div>`;
     return;
@@ -2329,7 +2332,10 @@ function renderOperationsOverview({ error = '' } = {}) {
         <h2>Günlük Oda Özeti</h2>
         <p>1000, 2000, 3000, 4000 ve 5000 bölgeleri.</p>
       </div>
-      <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+      <div class="overview-head-actions">
+        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+        <button type="button" class="overview-print-btn" data-overview-print>Yazdır / PDF Al</button>
+      </div>
     </div>
 
     <div class="overview-simple-wrap">
@@ -2351,6 +2357,27 @@ function renderOperationsOverview({ error = '' } = {}) {
         </tbody>
       </table>
     </div>`;
+}
+
+function printOperationsOverview() {
+  if (!overviewActive || !operationsOverview || operationsOverview.hidden) return;
+
+  const oldTitle = document.title;
+  document.title = 'Günlük Oda Özeti';
+  document.body.classList.add('printing-overview');
+
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    document.title = oldTitle;
+    document.body.classList.remove('printing-overview');
+    window.removeEventListener('afterprint', restore);
+  };
+
+  window.addEventListener('afterprint', restore);
+  setTimeout(() => window.print(), 50);
+  setTimeout(restore, 3000);
 }
 
 async function loadOverviewWorkbookGroups(items, mode) {
@@ -4422,7 +4449,11 @@ departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
 overviewModeBtn?.addEventListener('click', () => setOverviewActive(true));
 operationsOverview?.addEventListener('click', event => {
-  if (event.target.closest('[data-overview-refresh]')) refreshOperationsOverview({ useAutoFiles: true });
+  if (event.target.closest('[data-overview-refresh]')) {
+    refreshOperationsOverview({ useAutoFiles: true });
+    return;
+  }
+  if (event.target.closest('[data-overview-print]')) printOperationsOverview();
 });
 dndModeBtn?.addEventListener('click', () => setMode(MODE_DND));
 vacantModeBtn?.addEventListener('click', () => setMode(MODE_VACANT));
