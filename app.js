@@ -2338,6 +2338,7 @@ function renderOperationsOverview({ error = '' } = {}) {
           <tr>
             <th>Durum</th>
             ${columns.map(label => `<th>${escapeHtml(label)}</th>`).join('')}
+            <th class="overview-total-col">Toplam</th>
           </tr>
         </thead>
         <tbody>
@@ -2345,6 +2346,7 @@ function renderOperationsOverview({ error = '' } = {}) {
             <tr class="overview-row-${row.className}">
               <th scope="row">${escapeHtml(row.label)}</th>
               ${groups.map(({ stats }) => `<td>${row.value(stats)}</td>`).join('')}
+              <td class="overview-total-col">${groups.reduce((sum, { stats }) => sum + Number(row.value(stats) || 0), 0)}</td>
             </tr>`).join('')}
         </tbody>
       </table>

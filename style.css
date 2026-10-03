@@ -1902,6 +1902,12 @@ table.lc-table {
 .overview-row-arrivals td { background: #eef6fc; }
 .overview-row-departures td { background: #f4f1fb; }
 
+.overview-simple-table .overview-total-col {
+  font-weight: 900;
+  border-left: 2px solid #b8aca2;
+  background: #f4eee8 !important;
+}
+
 @media (max-width: 720px) {
   .overview-simple-table { min-width: 620px; }
   .overview-simple-table th,
