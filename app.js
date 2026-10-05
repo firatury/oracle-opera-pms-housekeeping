@@ -21,6 +21,7 @@ const assignmentStatus = document.getElementById('assignmentStatus');
 const appTitle = document.getElementById('appTitle');
 const departuresModeBtn = document.getElementById('departuresModeBtn');
 const arrivalsModeBtn = document.getElementById('arrivalsModeBtn');
+const roomListsModeBtn = document.getElementById('roomListsModeBtn');
 const overviewModeBtn = document.getElementById('overviewModeBtn');
 const operationsOverview = document.getElementById('operationsOverview');
 const dndModeBtn = document.getElementById('dndModeBtn');
@@ -101,6 +102,7 @@ let downloadsUsingFallback = false;
 
 /* ---------- Operasyon özeti ---------- */
 let overviewActive = false;
+let roomListsActive = false;
 let overviewBusy = false;
 let overviewData = { arrivals: new Map(), departures: new Map(), vacant: new Map() };
 let overviewSources = { arrivals: [], departures: [], vacant: [] };
@@ -2260,6 +2262,101 @@ function renderOverviewGroup(groupName) {
   </article>`;
 }
 
+function overviewRoomListSection(groups) {
+  const dirtyByGroup = groups.map(({ groupName, stats }) => ({
+    groupName,
+    rows: stats.dirtyEmpty,
+  }));
+  const cleanNoArrivalByGroup = groups.map(({ groupName, stats }) => ({
+    groupName,
+    rows: stats.cleanEmptyNoArrival,
+  }));
+
+  const dirtyTotal = dirtyByGroup.reduce((sum, item) => sum + roomList(item.rows).length, 0);
+  const cleanNoArrivalTotal = cleanNoArrivalByGroup.reduce((sum, item) => sum + roomList(item.rows).length, 0);
+
+  const renderGroupRooms = (item) => {
+    const rooms = roomList(item.rows);
+    const label = String(item.groupName).replace(/ler$/i, '');
+    return `<div class="room-list-group">
+      <div class="room-list-group-head"><strong>${escapeHtml(label)}</strong><span>${rooms.length}</span></div>
+      <div class="room-list-room-numbers">${rooms.length ? rooms.map(room => `<span>${escapeHtml(room)}</span>`).join('') : '<em>Oda yok</em>'}</div>
+    </div>`;
+  };
+
+  return `<section id="overviewRoomLists" class="overview-room-lists">
+    <div class="room-lists-head">
+      <div>
+        <h2>Kirli + Boş Temiz Odalar</h2>
+        <p>Kirli odalar ile Arrivals listesinde olmayan girişsiz temiz odalar.</p>
+      </div>
+      <div class="room-lists-actions">
+        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+        <button type="button" class="room-lists-print-btn" data-room-lists-print>Yazdır / PDF Al</button>
+      </div>
+    </div>
+
+    <div class="room-lists-totals">
+      <div class="room-lists-total dirty"><strong>${dirtyTotal}</strong><span>Kirli Oda</span><small>VAC + DI</small></div>
+      <div class="room-lists-total clean"><strong>${cleanNoArrivalTotal}</strong><span>Girişsiz Temiz</span><small>VAC + IP, Arrivals'ta yok</small></div>
+    </div>
+
+    <div class="room-list-columns">
+      <article class="room-list-card dirty-card">
+        <div class="room-list-card-title">
+          <div><h3>Kirli Odalar</h3><p>Room Type = VAC ve FO Status = DI</p></div>
+          <strong>${dirtyTotal}</strong>
+        </div>
+        <div class="room-list-groups">${dirtyByGroup.map(renderGroupRooms).join('')}</div>
+      </article>
+
+      <article class="room-list-card clean-card">
+        <div class="room-list-card-title">
+          <div><h3>Girişsiz Temiz Odalar</h3><p>VAC + IP ve Arrivals listesinde bulunmayan</p></div>
+          <strong>${cleanNoArrivalTotal}</strong>
+        </div>
+        <div class="room-list-groups">${cleanNoArrivalByGroup.map(renderGroupRooms).join('')}</div>
+      </article>
+    </div>
+  </section>`;
+}
+
+function renderRoomListsView({ error = '' } = {}) {
+  if (!operationsOverview) return;
+  operationsOverview.hidden = !roomListsActive;
+  if (!roomListsActive) return;
+
+  if (error) {
+    operationsOverview.innerHTML = `<div class="overview-empty">${escapeHtml(error)}</div>`;
+    return;
+  }
+
+  const groups = CHIEF_GROUPS.map(groupName => ({
+    groupName,
+    stats: overviewGroupStats(groupName),
+  }));
+  const hasData = groups.some(({ stats }) => stats.vacant.length || stats.arrivals.length);
+  if (!hasData) {
+    operationsOverview.innerHTML = `
+      <div class="room-lists-head room-lists-empty-head">
+        <div>
+          <h2>Kirli + Boş Temiz Odalar</h2>
+          <p>VAC + DI kirli odalar ve Arrivals'ta olmayan VAC + IP temiz odalar.</p>
+        </div>
+        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+      </div>
+      <div class="overview-empty">Bugüne ait Vacant / Arrivals verisi bulunamadı.</div>`;
+    return;
+  }
+
+  operationsOverview.innerHTML = overviewRoomListSection(groups);
+}
+
+function renderActiveOperationsView(options = {}) {
+  if (roomListsActive) return renderRoomListsView(options);
+  return renderOperationsOverview(options);
+}
+
 function renderOperationsOverview({ error = '' } = {}) {
   if (!operationsOverview) return;
   operationsOverview.hidden = !overviewActive;
@@ -2380,6 +2477,29 @@ function printOperationsOverview() {
   setTimeout(restore, 3000);
 }
 
+function printOverviewRoomLists() {
+  if (!roomListsActive || !operationsOverview || operationsOverview.hidden) return;
+  const section = document.getElementById('overviewRoomLists');
+  if (!section) return;
+
+  const oldTitle = document.title;
+  document.title = 'Kirli ve Girişsiz Temiz Odalar';
+  document.body.classList.add('printing-room-lists');
+
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    document.title = oldTitle;
+    document.body.classList.remove('printing-room-lists');
+    window.removeEventListener('afterprint', restore);
+  };
+
+  window.addEventListener('afterprint', restore);
+  setTimeout(() => window.print(), 50);
+  setTimeout(restore, 3000);
+}
+
 async function loadOverviewWorkbookGroups(items, mode) {
   const loaded = [];
   for (const item of items || []) {
@@ -2407,7 +2527,7 @@ async function loadOverviewVacantGroups(items) {
 async function refreshOperationsOverview({ useAutoFiles = true } = {}) {
   if (overviewBusy) return;
   overviewBusy = true;
-  if (overviewActive && operationsOverview) operationsOverview.innerHTML = '<div class="overview-loading">Bugünün özet verileri hazırlanıyor…</div>';
+  if ((overviewActive || roomListsActive) && operationsOverview) operationsOverview.innerHTML = `<div class="overview-loading">${roomListsActive ? 'Oda listeleri hazırlanıyor…' : 'Bugünün özet verileri hazırlanıyor…'}</div>`;
   try {
     if (useAutoFiles) {
       const [arrivals, departures, vacant] = await Promise.all([
@@ -2419,24 +2539,47 @@ async function refreshOperationsOverview({ useAutoFiles = true } = {}) {
       if (departures.size) { overviewData.departures = departures; overviewSources.departures = autoDownloadFiles.departures.map(x => x.file.name); }
       if (vacant.size) { overviewData.vacant = vacant; overviewSources.vacant = autoDownloadFiles.vacant.map(x => x.file.name); }
     }
-    renderOperationsOverview();
+    renderActiveOperationsView();
   } catch (error) {
     console.error(error);
-    renderOperationsOverview({ error: error.message || 'Özet hazırlanamadı.' });
+    renderActiveOperationsView({ error: error.message || 'Veriler hazırlanamadı.' });
   } finally { overviewBusy = false; }
 }
 
 function setOverviewActive(active) {
   overviewActive = Boolean(active);
+  if (overviewActive) roomListsActive = false;
   document.body.classList.toggle('overview-active', overviewActive);
+  document.body.classList.toggle('room-lists-active', roomListsActive);
   overviewModeBtn?.classList.toggle('active', overviewActive);
+  roomListsModeBtn?.classList.toggle('active', roomListsActive);
   overviewModeBtn?.setAttribute('aria-pressed', String(overviewActive));
-  if (operationsOverview) operationsOverview.hidden = !overviewActive;
+  roomListsModeBtn?.setAttribute('aria-pressed', String(roomListsActive));
+  if (operationsOverview) operationsOverview.hidden = !(overviewActive || roomListsActive);
   if (overviewActive) {
     arrivalsModeBtn.classList.remove('active');
     departuresModeBtn.classList.remove('active');
     refreshOperationsOverview({ useAutoFiles: true });
-  } else {
+  } else if (!roomListsActive) {
+    updateModeUi();
+  }
+}
+
+function setRoomListsActive(active) {
+  roomListsActive = Boolean(active);
+  if (roomListsActive) overviewActive = false;
+  document.body.classList.toggle('overview-active', overviewActive);
+  document.body.classList.toggle('room-lists-active', roomListsActive);
+  overviewModeBtn?.classList.toggle('active', overviewActive);
+  roomListsModeBtn?.classList.toggle('active', roomListsActive);
+  overviewModeBtn?.setAttribute('aria-pressed', String(overviewActive));
+  roomListsModeBtn?.setAttribute('aria-pressed', String(roomListsActive));
+  if (operationsOverview) operationsOverview.hidden = !(overviewActive || roomListsActive);
+  if (roomListsActive) {
+    arrivalsModeBtn.classList.remove('active');
+    departuresModeBtn.classList.remove('active');
+    refreshOperationsOverview({ useAutoFiles: true });
+  } else if (!overviewActive) {
     updateModeUi();
   }
 }
@@ -3873,15 +4016,18 @@ function clearAll() {
 function updateModeUi() {
   appTitle.textContent = modeLabel();
   document.title = modeLabel();
-  departuresModeBtn.classList.toggle('active', !overviewActive && currentMode === MODE_DEPARTURES);
-  arrivalsModeBtn.classList.toggle('active', !overviewActive && currentMode === MODE_ARRIVALS);
+  const specialViewActive = overviewActive || roomListsActive;
+  departuresModeBtn.classList.toggle('active', !specialViewActive && currentMode === MODE_DEPARTURES);
+  arrivalsModeBtn.classList.toggle('active', !specialViewActive && currentMode === MODE_ARRIVALS);
+  roomListsModeBtn?.classList.toggle('active', roomListsActive);
   overviewModeBtn?.classList.toggle('active', overviewActive);
+  roomListsModeBtn?.setAttribute('aria-pressed', String(roomListsActive));
   overviewModeBtn?.setAttribute('aria-pressed', String(overviewActive));
   dndModeBtn?.classList.toggle('active', currentMode === MODE_DND);
   vacantModeBtn?.classList.toggle('active', currentMode === MODE_VACANT);
   lateCoutModeBtn?.classList.toggle('active', currentMode === MODE_LATECOUT);
-  departuresModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_DEPARTURES));
-  arrivalsModeBtn.setAttribute('aria-pressed', String(currentMode === MODE_ARRIVALS));
+  departuresModeBtn.setAttribute('aria-pressed', String(!specialViewActive && currentMode === MODE_DEPARTURES));
+  arrivalsModeBtn.setAttribute('aria-pressed', String(!specialViewActive && currentMode === MODE_ARRIVALS));
   dndModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_DND));
   vacantModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_VACANT));
   lateCoutModeBtn?.setAttribute('aria-pressed', String(currentMode === MODE_LATECOUT));
@@ -3931,6 +4077,7 @@ function hasLoadedMainFile() {
 function switchModeAndMaybeClear(mode) {
   if (![MODE_DEPARTURES, MODE_ARRIVALS].includes(mode)) return;
   if (overviewActive) setOverviewActive(false);
+  if (roomListsActive) setRoomListsActive(false);
   if (mode === currentMode) { updateModeUi(); return; }
 
   const previousMode = currentMode;
@@ -4447,10 +4594,15 @@ startDndBtn?.addEventListener('click', () => selectModeFromMenu(MODE_DND));
 backMenuBtn?.addEventListener('click', showStartMenu);
 departuresModeBtn.addEventListener('click', () => setMode(MODE_DEPARTURES));
 arrivalsModeBtn.addEventListener('click', () => setMode(MODE_ARRIVALS));
+roomListsModeBtn?.addEventListener('click', () => setRoomListsActive(true));
 overviewModeBtn?.addEventListener('click', () => setOverviewActive(true));
 operationsOverview?.addEventListener('click', event => {
   if (event.target.closest('[data-overview-refresh]')) {
     refreshOperationsOverview({ useAutoFiles: true });
+    return;
+  }
+  if (event.target.closest('[data-room-lists-print]')) {
+    printOverviewRoomLists();
     return;
   }
   if (event.target.closest('[data-overview-print]')) printOperationsOverview();

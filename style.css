@@ -1606,6 +1606,17 @@ table.lc-table {
 
 
 /* ---------- Arrivals / Departures operasyon özeti ---------- */
+.room-lists-mode-btn {
+  background: #f7f1e9;
+  color: #6b4e33;
+  border: 1px solid #decab4;
+}
+.room-lists-mode-btn.active {
+  background: #6b4e33;
+  color: #fff;
+  border-color: #6b4e33;
+}
+
 .overview-mode-btn {
   background: #eef1f5;
   color: #394756;
@@ -1628,10 +1639,20 @@ table.lc-table {
 .overview-active .panel > .actions,
 .overview-active .panel > .status,
 .overview-active #summary,
-.overview-active #preview {
+.overview-active #preview,
+.room-lists-active .panel > .app-title,
+.room-lists-active .panel > .upload-card,
+.room-lists-active .panel > .downloads-auto-panel,
+.room-lists-active .panel > .green-panel,
+.room-lists-active .panel > .assignment-panel,
+.room-lists-active .panel > .actions,
+.room-lists-active .panel > .status,
+.room-lists-active #summary,
+.room-lists-active #preview {
   display: none !important;
 }
-.overview-active .panel {
+.overview-active .panel,
+.room-lists-active .panel {
   padding-bottom: 10px;
 }
 
@@ -1989,4 +2010,170 @@ table.lc-table {
   body.printing-overview .overview-simple-table tbody th { font-size: 10px !important; }
   body.printing-overview .overview-simple-table tbody td { font-size: 16px !important; }
   body.printing-overview .overview-simple-table .overview-total-col { border-left: 1px solid #777 !important; }
+}
+
+
+/* Günlük Özet öncesi: kirli ve girişsiz temiz oda listeleri */
+.overview-room-lists {
+  margin: 0 0 22px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #ded6cf;
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(34,26,19,.07);
+}
+.room-lists-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.room-lists-head h2 { margin: 0; font-size: 22px; }
+.room-lists-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.room-lists-print-btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  background: #263746;
+  color: #fff;
+  box-shadow: none;
+}
+.room-lists-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.room-lists-total {
+  border: 1px solid #ddd5cd;
+  border-radius: 13px;
+  padding: 10px 12px;
+}
+.room-lists-total strong { display: inline-block; margin-right: 8px; font-size: 24px; }
+.room-lists-total span { font-size: 13px; font-weight: 900; }
+.room-lists-total small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+.room-lists-total.dirty { background: #fff2f0; border-color: #e8c1bb; }
+.room-lists-total.clean { background: #eef8f0; border-color: #c7dec9; }
+.room-list-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.room-list-card {
+  min-width: 0;
+  border: 1px solid #e2dbd4;
+  border-radius: 15px;
+  overflow: hidden;
+}
+.room-list-card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid #e2dbd4;
+}
+.room-list-card-title h3 { margin: 0; font-size: 16px; }
+.room-list-card-title p { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+.room-list-card-title > strong { font-size: 23px; line-height: 1; }
+.dirty-card .room-list-card-title { background: #fff2f0; }
+.clean-card .room-list-card-title { background: #eef8f0; }
+.room-list-groups { padding: 6px 11px 10px; }
+.room-list-group { padding: 8px 0; border-bottom: 1px solid #eee8e2; }
+.room-list-group:last-child { border-bottom: 0; }
+.room-list-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.room-list-group-head strong { font-size: 13px; }
+.room-list-group-head span {
+  min-width: 27px;
+  height: 24px;
+  padding: 0 7px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eee8e2;
+  font-size: 11px;
+  font-weight: 900;
+}
+.room-list-room-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.room-list-room-numbers span {
+  display: inline-block;
+  padding: 5px 7px;
+  border: 1px solid #ddd5cd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 900;
+}
+.room-list-room-numbers em { color: #978d85; font-size: 11px; font-style: normal; }
+
+@media (max-width: 720px) {
+  .room-lists-head { display: block; }
+  .room-lists-print-btn { width: 100%; margin-top: 10px; }
+  .room-list-columns { grid-template-columns: 1fr; }
+}
+
+@media print {
+  body.printing-room-lists .app-shell {
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 9mm !important;
+  }
+  body.printing-room-lists .app-shell > *:not(#operationsOverview) {
+    display: none !important;
+  }
+  body.printing-room-lists #operationsOverview,
+  body.printing-room-lists .operations-overview.no-print {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-room-lists #operationsOverview > *:not(#overviewRoomLists) {
+    display: none !important;
+  }
+  body.printing-room-lists #overviewRoomLists {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  body.printing-room-lists .room-lists-print-btn { display: none !important; }
+  body.printing-room-lists .room-lists-head { margin-bottom: 5mm !important; }
+  body.printing-room-lists .room-lists-head h2 { font-size: 18px !important; }
+  body.printing-room-lists .room-lists-head p { font-size: 9px !important; }
+  body.printing-room-lists .room-lists-totals { gap: 4mm !important; margin-bottom: 4mm !important; }
+  body.printing-room-lists .room-lists-total { padding: 3mm !important; }
+  body.printing-room-lists .room-list-columns { gap: 4mm !important; align-items: start; }
+  body.printing-room-lists .room-list-card { break-inside: avoid; page-break-inside: avoid; }
+  body.printing-room-lists .room-list-card-title { padding: 3mm !important; }
+  body.printing-room-lists .room-list-groups { padding: 1mm 3mm 3mm !important; }
+  body.printing-room-lists .room-list-group { padding: 2mm 0 !important; }
+  body.printing-room-lists .room-list-room-numbers { gap: 1.2mm !important; }
+  body.printing-room-lists .room-list-room-numbers span { padding: 1.2mm 1.8mm !important; font-size: 9px !important; }
+}
+
+
+/* Ayrı Kirli + Boş Temiz sekmesi */
+.room-lists-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.room-lists-empty-head {
+  margin-bottom: 14px;
+}
+@media (max-width: 720px) {
+  .room-lists-actions { width: 100%; margin-top: 10px; }
+  .room-lists-actions button { flex: 1 1 0; }
 }
