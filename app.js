@@ -696,6 +696,17 @@ function formatShortDate(date) {
   return formatDateParts(date.getDate(), date.getMonth() + 1, date.getFullYear());
 }
 
+function operationTodayDateText() {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat('tr-TR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(now);
+  const weekday = new Intl.DateTimeFormat('tr-TR', { weekday: 'long' }).format(now);
+  return `${date} ${weekday.charAt(0).toLocaleUpperCase('tr-TR')}${weekday.slice(1)}`;
+}
+
 function dateFromParts(day, month, year) {
   const y = Number(String(year).length === 2 ? `20${year}` : year);
   const m = Number(month);
@@ -2290,9 +2301,12 @@ function overviewRoomListSection(groups) {
         <h2>Kirli + Boş Temiz Odalar</h2>
         <p>Kirli odalar ile Arrivals listesinde olmayan girişsiz temiz odalar.</p>
       </div>
-      <div class="room-lists-actions">
-        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
-        <button type="button" class="room-lists-print-btn" data-room-lists-print>Yazdır / PDF Al</button>
+      <div class="overview-head-side">
+        <div class="operation-date">${escapeHtml(operationTodayDateText())}</div>
+        <div class="room-lists-actions">
+          <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+          <button type="button" class="room-lists-print-btn" data-room-lists-print>Yazdır / PDF Al</button>
+        </div>
       </div>
     </div>
 
@@ -2343,7 +2357,10 @@ function renderRoomListsView({ error = '' } = {}) {
           <h2>Kirli + Boş Temiz Odalar</h2>
           <p>VAC + DI kirli odalar ve Arrivals'ta olmayan VAC + IP temiz odalar.</p>
         </div>
-        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+        <div class="overview-head-side">
+          <div class="operation-date">${escapeHtml(operationTodayDateText())}</div>
+          <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+        </div>
       </div>
       <div class="overview-empty">Bugüne ait Vacant / Arrivals verisi bulunamadı.</div>`;
     return;
@@ -2380,9 +2397,12 @@ function renderOperationsOverview({ error = '' } = {}) {
           <h2>Günlük Oda Özeti</h2>
           <p>1000–5000 bölgeleri için temel operasyon sayıları.</p>
         </div>
-        <div class="overview-head-actions">
-          <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
-          <button type="button" class="overview-print-btn" disabled>Yazdır / PDF Al</button>
+        <div class="overview-head-side">
+          <div class="operation-date">${escapeHtml(operationTodayDateText())}</div>
+          <div class="overview-head-actions">
+            <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+            <button type="button" class="overview-print-btn" disabled>Yazdır / PDF Al</button>
+          </div>
         </div>
       </div>
       <div class="overview-empty">Bugüne ait Arrivals, Departures veya Vacant verisi bulunamadı.</div>`;
@@ -2429,9 +2449,12 @@ function renderOperationsOverview({ error = '' } = {}) {
         <h2>Günlük Oda Özeti</h2>
         <p>1000, 2000, 3000, 4000 ve 5000 bölgeleri.</p>
       </div>
-      <div class="overview-head-actions">
-        <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
-        <button type="button" class="overview-print-btn" data-overview-print>Yazdır / PDF Al</button>
+      <div class="overview-head-side">
+        <div class="operation-date">${escapeHtml(operationTodayDateText())}</div>
+        <div class="overview-head-actions">
+          <button type="button" class="overview-refresh-btn" data-overview-refresh>Yenile</button>
+          <button type="button" class="overview-print-btn" data-overview-print>Yazdır / PDF Al</button>
+        </div>
       </div>
     </div>
 

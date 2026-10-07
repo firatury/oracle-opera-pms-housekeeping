@@ -2148,7 +2148,7 @@ table.lc-table {
     border-radius: 0 !important;
     box-shadow: none !important;
   }
-  body.printing-room-lists .room-lists-print-btn { display: none !important; }
+  body.printing-room-lists .room-lists-actions { display: none !important; }
   body.printing-room-lists .room-lists-head { margin-bottom: 5mm !important; }
   body.printing-room-lists .room-lists-head h2 { font-size: 18px !important; }
   body.printing-room-lists .room-lists-head p { font-size: 9px !important; }
@@ -2176,4 +2176,47 @@ table.lc-table {
 @media (max-width: 720px) {
   .room-lists-actions { width: 100%; margin-top: 10px; }
   .room-lists-actions button { flex: 1 1 0; }
+}
+
+
+/* Kirli + Boş Temiz ve Günlük Özet sağ üst tarih */
+.overview-head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.operation-date {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 900;
+  color: var(--ink);
+  white-space: nowrap;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 720px) {
+  .overview-head-side {
+    width: 100%;
+    align-items: flex-end;
+    margin-top: 10px;
+  }
+}
+
+@media print {
+  body.printing-overview .overview-head-side,
+  body.printing-room-lists .overview-head-side {
+    align-items: flex-end !important;
+    margin-top: 0 !important;
+  }
+
+  body.printing-overview .operation-date,
+  body.printing-room-lists .operation-date {
+    display: block !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: #111 !important;
+  }
 }
