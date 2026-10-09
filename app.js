@@ -710,7 +710,7 @@ function operationTodayDateText() {
     hour12: false,
   }).format(now);
   const weekdayText = `${weekday.charAt(0).toLocaleUpperCase('tr-TR')}${weekday.slice(1)}`;
-  return `${date} ${weekdayText}\nYazdırma saati: ${time}`;
+  return `${date} ${weekdayText}\n ${time}`;
 }
 
 function refreshOperationDateStamp() {
