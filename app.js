@@ -704,7 +704,19 @@ function operationTodayDateText() {
     year: 'numeric',
   }).format(now);
   const weekday = new Intl.DateTimeFormat('tr-TR', { weekday: 'long' }).format(now);
-  return `${date} ${weekday.charAt(0).toLocaleUpperCase('tr-TR')}${weekday.slice(1)}`;
+  const time = new Intl.DateTimeFormat('tr-TR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now);
+  const weekdayText = `${weekday.charAt(0).toLocaleUpperCase('tr-TR')}${weekday.slice(1)}`;
+  return `${date} ${weekdayText}\nYazdırma saati: ${time}`;
+}
+
+function refreshOperationDateStamp() {
+  document.querySelectorAll('.operation-date').forEach(element => {
+    element.textContent = operationTodayDateText();
+  });
 }
 
 function dateFromParts(day, month, year) {
@@ -2482,6 +2494,9 @@ function renderOperationsOverview({ error = '' } = {}) {
 function printOperationsOverview() {
   if (!overviewActive || !operationsOverview || operationsOverview.hidden) return;
 
+  // Yazdırma anındaki gerçek saati çıktıya bas.
+  refreshOperationDateStamp();
+
   const oldTitle = document.title;
   document.title = 'Günlük Oda Özeti';
   document.body.classList.add('printing-overview');
@@ -2504,6 +2519,9 @@ function printOverviewRoomLists() {
   if (!roomListsActive || !operationsOverview || operationsOverview.hidden) return;
   const section = document.getElementById('overviewRoomLists');
   if (!section) return;
+
+  // Yazdırma anındaki gerçek saati çıktıya bas.
+  refreshOperationDateStamp();
 
   const oldTitle = document.title;
   document.title = 'Kirli ve Girişsiz Temiz Odalar';
@@ -4673,3 +4691,5 @@ updateModeUi();
 setButtons({ printable: false, clearable: false });
 showApp();
 initDownloadsAutomation();
+// Tarih/saat etiketi açık ekranda da güncel kalsın.
+setInterval(refreshOperationDateStamp, 30000);

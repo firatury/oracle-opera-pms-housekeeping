@@ -2190,10 +2190,11 @@ table.lc-table {
 
 .operation-date {
   font-size: 13px;
-  line-height: 1;
+  line-height: 1.35;
   font-weight: 900;
   color: var(--ink);
-  white-space: nowrap;
+  white-space: pre-line;
+  text-align: right;
   letter-spacing: .01em;
 }
 
