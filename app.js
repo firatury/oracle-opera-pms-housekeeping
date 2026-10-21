@@ -109,16 +109,16 @@ let overviewSources = { arrivals: [], departures: [], vacant: [] };
 
 
 const FIELD_DEFS = [
-  { key: 'room', out: 'Room', aliases: ['room', 'oda', 'oda no', 'room no', 'room number'] },
-  { key: 'eta', out: 'ETA', aliases: ['eta', 'arrival time', 'geliş saati', 'giris saati'] },
-  { key: 'arrival', out: 'Arrival', aliases: ['arrival', 'arrıval', 'geliş', 'gelis', 'arrival date'] },
-  { key: 'adults', out: 'Adults', aliases: ['adults', 'adult', 'adult(s)', 'yetişkin', 'yetiskin', 'adults count'] },
-  { key: 'children', out: 'Children', aliases: ['children', 'childr', 'child', 'çocuk', 'cocuk'] },
-  { key: 'childAges', out: 'Child Ages', aliases: ['child ages', 'child age', 'ages', 'çocuk yaş', 'cocuk yas'] },
-  { key: 'departure', out: 'Departure', aliases: ['departure', 'departures', 'ayrılış', 'ayrilis', 'departure date'] },
-  { key: 'etd', out: 'ETD', aliases: ['etd', 'departure time', 'çıkış saati', 'cikis saati'] },
-  { key: 'name', out: 'Name', aliases: ['name', 'guest name', 'guest', 'misafir', 'ad soyad'] },
-  { key: 'travelAgent', out: 'Travel Agent', aliases: ['travel agent', 'agent', 'agency', 'acenta', 'travelagent'] },
+  { key: 'room', out: 'Room', aliases: ['room', 'room no', 'room number', 'room #', 'room no.', 'rm', 'rm no', 'res room', 'oda', 'oda no', 'oda numarası', 'oda numarasi'] },
+  { key: 'eta', out: 'ETA', aliases: ['eta', 'eta time', 'eta local', 'estimated time of arrival', 'arrival time', 'arrival time (eta)', 'check in time', 'check-in time', 'geliş saati', 'giris saati', 'giriş saati'] },
+  { key: 'arrival', out: 'Arrival', aliases: ['arrival', 'arrivals', 'arrıval', 'arrival date', 'arr date', 'arr. date', 'check in date', 'check-in date', 'geliş', 'gelis', 'giriş tarihi', 'giris tarihi'] },
+  { key: 'adults', out: 'Adults', aliases: ['adults', 'adult', 'adult(s)', 'no of adults', 'number of adults', 'adults count', 'adult count', 'yetişkin', 'yetiskin', 'yetişkin sayısı', 'yetiskin sayisi'] },
+  { key: 'children', out: 'Children', aliases: ['children', 'childr', 'child', 'no of children', 'number of children', 'children count', 'child count', 'çocuk', 'cocuk', 'çocuk sayısı', 'cocuk sayisi'] },
+  { key: 'childAges', out: 'Child Ages', aliases: ['child ages', 'child age', 'children ages', 'ages', 'çocuk yaş', 'cocuk yas', 'çocuk yaşları', 'cocuk yaslari'] },
+  { key: 'departure', out: 'Departure', aliases: ['departure', 'departures', 'departure date', 'dep date', 'dep. date', 'check out date', 'check-out date', 'ayrılış', 'ayrilis', 'çıkış tarihi', 'cikis tarihi'] },
+  { key: 'etd', out: 'ETD', aliases: ['etd', 'etd time', 'departure time', 'check out time', 'check-out time', 'checkout time', 'çıkış saati', 'cikis saati'] },
+  { key: 'name', out: 'Name', aliases: ['name', 'guest name', 'guest', 'full name', 'reservation name', 'res name', 'misafir', 'misafir adı', 'misafir adi', 'ad soyad'] },
+  { key: 'travelAgent', out: 'Travel Agent', aliases: ['travel agent', 'agent', 'agency', 'travel agency', 'booking agent', 'acenta', 'acente', 'travelagent'] },
 ];
 
 const REQUIRED_KEYS = {
@@ -1558,35 +1558,52 @@ async function downloadLateCoutExcel() {
 }
 /* ---------- Late Check Out sonu ---------- */
 
-function findHeaderRow(rows, fields = requiredFields()) {
-  let best = { index: 0, score: -1 };
-  rows.slice(0, 25).forEach((row, index) => {
-    const joined = row.map(canonical);
-    let score = 0;
-    fields.forEach(field => {
-      if (joined.some(cell => field.aliases.map(canonical).includes(cell))) score++;
-    });
-    if (score > best.score) best = { index, score };
-  });
-  return best.score >= 3 ? best.index : 0;
-}
-
-function mapHeaders(headerRow, fields = requiredFields()) {
+function mapHeaders(headerRow = [], fields = requiredFields()) {
   const map = {};
-  const normalizedCells = headerRow.map(canonical);
+  const normalizedCells = (headerRow || []).map(canonical);
 
   fields.forEach(field => {
-    const normalizedAliases = field.aliases.map(canonical);
-    let index = normalizedCells.findIndex(cell => normalizedAliases.includes(cell));
+    const normalizedAliases = [...new Set(field.aliases.map(canonical).filter(Boolean))]
+      .sort((a, b) => b.length - a.length);
 
+    // Önce tam eşleşme. Boş Excel başlıkları hiçbir kolona eşleşmemeli.
+    let index = normalizedCells.findIndex(cell => cell && normalizedAliases.includes(cell));
+
+    // Uzatılmış başlıkları destekle (örn. "Room Number (Current)").
+    // Kısa/genel alias'ları kısmi eşleştirmeyerek ETA ile Arrival gibi alanların
+    // aynı kolona yanlış bağlanmasını önle.
     if (index === -1) {
-      index = normalizedCells.findIndex(cell => normalizedAliases.some(alias => cell.includes(alias) || alias.includes(cell)));
+      const genericAliases = new Set(['room', 'eta', 'etd', 'arrival', 'arrivals', 'departure', 'departures', 'name', 'guest', 'agent', 'agency', 'adult', 'adults', 'child', 'children', 'ages']);
+      index = normalizedCells.findIndex(cell => {
+        if (!cell) return false;
+        return normalizedAliases.some(alias => {
+          if (genericAliases.has(alias) || alias.length < 6) return false;
+          return cell.startsWith(`${alias} `) || cell.endsWith(` ${alias}`) || cell.includes(` ${alias} `);
+        });
+      });
     }
 
     if (index !== -1) map[field.key] = index;
   });
 
   return map;
+}
+
+function findHeaderRow(rows, fields = requiredFields()) {
+  let best = { index: 0, score: -1, hasRoom: false };
+  const scanRows = (rows || []).slice(0, 40);
+
+  scanRows.forEach((row, index) => {
+    const map = mapHeaders(row, fields);
+    const hasRoom = map.room !== undefined;
+    const matchedCount = Object.keys(map).length;
+    // Room başlığı zorunlu; Arrivals/Departures dosyalarında diğer kolonlar
+    // değişebilir veya hiç bulunmayabilir. Bilinen alan sayısı en iyi satırı seçer.
+    const score = (hasRoom ? 100 : 0) + matchedCount * 3 - index * 0.01;
+    if (score > best.score) best = { index, score, hasRoom };
+  });
+
+  return best.hasRoom ? best.index : 0;
 }
 
 function fileNameModeHint(fileName = '', workbook = null) {
@@ -1654,24 +1671,37 @@ function detectWorkbookMode(workbook, fileName = '') {
   const allFields = FIELD_DEFS;
   const headerIndex = findHeaderRow(shape.displayRows, allFields);
   const headerMap = mapHeaders(shape.displayRows[headerIndex] || [], allFields);
-  if (headerMap.room === undefined || headerMap.arrival === undefined || headerMap.departure === undefined) return null;
+  // Arrival/Departure tarih kolonlarının ikisinin birden bulunması şart değil.
+  // Opera raporlarında başlıklar ve gereksiz kolonlar rapora göre değişebiliyor.
+  if (headerMap.room === undefined) return null;
 
-  const records = shape.rows.slice(headerIndex + 1, headerIndex + 101);
-  const displayRecords = shape.displayRows.slice(headerIndex + 1, headerIndex + 101);
+  const records = shape.rows.slice(headerIndex + 1, headerIndex + 151);
+  const displayRecords = shape.displayRows.slice(headerIndex + 1, headerIndex + 151);
   const arrivalDates = [];
   const departureDates = [];
-  let etdLateCount = 0;
+  let roomCount = 0;
+  let nameCount = 0;
+  let etaCount = 0;
   let etdCount = 0;
+  let etdLateCount = 0;
 
   records.forEach((row, index) => {
     const displayRow = displayRecords[index] || [];
     const room = normalizeRoomId(displayRow[headerMap.room] || row[headerMap.room]);
     if (!room) return;
+    roomCount += 1;
 
-    const arrivalDate = parseMatrixDate(row[headerMap.arrival], displayRow[headerMap.arrival]);
-    const departureDate = parseMatrixDate(row[headerMap.departure], displayRow[headerMap.departure]);
-    if (arrivalDate) arrivalDates.push(sameDayKey(arrivalDate));
-    if (departureDate) departureDates.push(sameDayKey(departureDate));
+    if (headerMap.name !== undefined && clean(row[headerMap.name] ?? displayRow[headerMap.name])) nameCount += 1;
+    if (headerMap.eta !== undefined && clean(row[headerMap.eta] ?? displayRow[headerMap.eta])) etaCount += 1;
+
+    if (headerMap.arrival !== undefined) {
+      const arrivalDate = parseMatrixDate(row[headerMap.arrival], displayRow[headerMap.arrival]);
+      if (arrivalDate) arrivalDates.push(sameDayKey(arrivalDate));
+    }
+    if (headerMap.departure !== undefined) {
+      const departureDate = parseMatrixDate(row[headerMap.departure], displayRow[headerMap.departure]);
+      if (departureDate) departureDates.push(sameDayKey(departureDate));
+    }
 
     if (headerMap.etd !== undefined) {
       const etd = formatTimeValue(row[headerMap.etd] || displayRow[headerMap.etd]);
@@ -1684,13 +1714,30 @@ function detectWorkbookMode(workbook, fileName = '') {
 
   const arrivalCluster = mostCommonRatio(arrivalDates);
   const departureCluster = mostCommonRatio(departureDates);
+  const nameRatio = roomCount ? nameCount / roomCount : 0;
+  const etaRatio = roomCount ? etaCount / roomCount : 0;
+  const etdRatio = roomCount ? etdCount / roomCount : 0;
   const lateRatio = etdCount ? etdLateCount / etdCount : 0;
 
-  // Departures dosyalarında ETD 17:00 çoğunlukla sabit/yüksek olur. Arrivals dosyalarında saatler daha dağınıktır.
-  if (lateRatio >= 0.45) return { mode: MODE_DEPARTURES, confidence: 0.78, reason: 'ETD 17:00 oranı yüksek' };
+  // Önce gerçek satır verilerine bak; yalnızca kolon adının varlığına güvenme.
+  if (lateRatio >= 0.45 || (etdRatio >= 0.35 && etdRatio > nameRatio * 1.25)) {
+    return { mode: MODE_DEPARTURES, confidence: lateRatio >= 0.45 ? 0.82 : 0.76, reason: 'ETD alanı dolu' };
+  }
+  if (nameRatio >= 0.35 && (nameRatio >= etdRatio * 0.8 || etdRatio < 0.2)) {
+    return { mode: MODE_ARRIVALS, confidence: 0.78, reason: 'misafir adı alanı dolu' };
+  }
+  if (headerMap.name !== undefined && headerMap.etd === undefined) {
+    return { mode: MODE_ARRIVALS, confidence: 0.72, reason: 'Arrivals başlıkları bulundu' };
+  }
+  if (headerMap.etd !== undefined && headerMap.name === undefined) {
+    return { mode: MODE_DEPARTURES, confidence: 0.72, reason: 'Departures başlıkları bulundu' };
+  }
+
   if (arrivalCluster >= 0.7 && arrivalCluster > departureCluster + 0.2) return { mode: MODE_ARRIVALS, confidence: 0.72, reason: 'Arrival tarihi tek güne yoğunlaşıyor' };
   if (departureCluster >= 0.7 && departureCluster > arrivalCluster + 0.2) return { mode: MODE_DEPARTURES, confidence: 0.72, reason: 'Departure tarihi tek güne yoğunlaşıyor' };
 
+  // Tek başına ETA yeterli sinyal değildir; yanlış otomatik sınıflandırmayı önle.
+  if (etaRatio >= 0.35 && etdRatio < 0.1 && nameRatio < 0.1) return { mode: MODE_ARRIVALS, confidence: 0.72, reason: 'ETA alanı dolu' };
   return null;
 }
 
@@ -2826,10 +2873,12 @@ function processWorkbook(workbook, mode = currentMode) {
 
   const fields = requiredFields(mode);
   const headerIndex = findHeaderRow(rows, fields);
-  const headerMap = mapHeaders(rows[headerIndex], fields);
-  const missing = fields.filter(field => headerMap[field.key] === undefined).map(field => field.out);
-  if (missing.length) {
-    throw new Error(`Eksik kolon bulundu: ${missing.join(', ')}. ${modeLabel(mode)} için başlık satırında bu kolonlar olmalı.`);
+  const headerMap = mapHeaders(rows[headerIndex] || [], fields);
+  // Room/Oda numarası dışındaki alanlar isteğe bağlıdır. Opera raporları
+  // filtreye/çıktı türüne göre farklı kolonlar içerebilir; tanınmayan veya
+  // eksik kolonlar dosyanın yüklenmesini engellememeli, ilgili hücreler boş kalmalı.
+  if (headerMap.room === undefined) {
+    throw new Error(`Oda/Room kolonu bulunamadı. ${modeLabel(mode)} Excel dosyasının başlık satırında Room, Room No veya Oda No alanı olmalı.`);
   }
 
   const records = rows.slice(headerIndex + 1)
