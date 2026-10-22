@@ -1719,7 +1719,21 @@ function detectWorkbookMode(workbook, fileName = '') {
   const etdRatio = roomCount ? etdCount / roomCount : 0;
   const lateRatio = etdCount ? etdLateCount / etdCount : 0;
 
-  // Önce gerçek satır verilerine bak; yalnızca kolon adının varlığına güvenme.
+  // Tarih kolonlarının doluluk dağılımı, misafir adı gibi ortak alanlardan
+  // daha güçlü bir sinyaldir. Departures raporlarında isim/arrival kolonu da
+  // bulunduğunda bunların Arrivals olarak yanlış sınıflandırılmasını önler.
+  if (departureCluster >= 0.7 && departureCluster > arrivalCluster + 0.2) {
+    return { mode: MODE_DEPARTURES, confidence: 0.82, reason: 'Departure tarihi tek güne yoğunlaşıyor' };
+  }
+  if (arrivalCluster >= 0.7 && arrivalCluster > departureCluster + 0.2) {
+    return { mode: MODE_ARRIVALS, confidence: 0.82, reason: 'Arrival tarihi tek güne yoğunlaşıyor' };
+  }
+
+  // ETD kolonu Departures için ayırt edicidir; boş/seyrek ETA değerleri
+  // ve ortak misafir adı kolonu sınıflandırmayı değiştirmemeli.
+  if (headerMap.etd !== undefined && (etdRatio >= 0.15 || headerMap.name === undefined)) {
+    return { mode: MODE_DEPARTURES, confidence: 0.76, reason: 'ETD / çıkış saati kolonu bulundu' };
+  }
   if (lateRatio >= 0.45 || (etdRatio >= 0.35 && etdRatio > nameRatio * 1.25)) {
     return { mode: MODE_DEPARTURES, confidence: lateRatio >= 0.45 ? 0.82 : 0.76, reason: 'ETD alanı dolu' };
   }
@@ -1732,9 +1746,6 @@ function detectWorkbookMode(workbook, fileName = '') {
   if (headerMap.etd !== undefined && headerMap.name === undefined) {
     return { mode: MODE_DEPARTURES, confidence: 0.72, reason: 'Departures başlıkları bulundu' };
   }
-
-  if (arrivalCluster >= 0.7 && arrivalCluster > departureCluster + 0.2) return { mode: MODE_ARRIVALS, confidence: 0.72, reason: 'Arrival tarihi tek güne yoğunlaşıyor' };
-  if (departureCluster >= 0.7 && departureCluster > arrivalCluster + 0.2) return { mode: MODE_DEPARTURES, confidence: 0.72, reason: 'Departure tarihi tek güne yoğunlaşıyor' };
 
   // Tek başına ETA yeterli sinyal değildir; yanlış otomatik sınıflandırmayı önle.
   if (etaRatio >= 0.35 && etdRatio < 0.1 && nameRatio < 0.1) return { mode: MODE_ARRIVALS, confidence: 0.72, reason: 'ETA alanı dolu' };
