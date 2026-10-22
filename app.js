@@ -1609,11 +1609,22 @@ function findHeaderRow(rows, fields = requiredFields()) {
 function fileNameModeHint(fileName = '', workbook = null) {
   const names = [fileName, ...(workbook?.SheetNames || [])].join(' ');
   const text = canonical(names);
+  const baseName = canonical(String(fileName || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, ''));
 
-  if (/\b(vacant|hkvacroom|vac|bos|boş)\b/.test(text)) return { mode: MODE_VACANT, confidence: 0.98, reason: 'dosya adında Vacant var' };
+  if (/\b(vacant|hkvacroom|vac|bos)\b/.test(text)) return { mode: MODE_VACANT, confidence: 0.98, reason: 'dosya adında Vacant var' };
   if (/\b(dnd|tist|temizlik)\b/.test(text)) return { mode: MODE_DND, confidence: 0.98, reason: 'dosya adında DND / TİST var' };
-  if (/\b(arrival|arrivals|arrivas|giris|gelis)\b/.test(text)) return { mode: MODE_ARRIVALS, confidence: 0.98, reason: 'dosya adında Arrivals var' };
-  if (/\b(departure|departures|departus|depertur|cikis|ayrilis)\b/.test(text)) return { mode: MODE_DEPARTURES, confidence: 0.98, reason: 'dosya adında Departures var' };
+
+  // Opera PMS dosyaları çoğunlukla kısaltılmış adlarla gelir: 22ARR.xls,
+  // 22CO.xls ve 22 ÇIKAN.xls. Rakam ile kısaltma arasında kelime sınırı
+  // bulunmadığından yalnızca \\bARR\\b / \\bCO\\b kullanmak bunları kaçırır.
+  if (/(^|[^a-z])(arrival|arrivals|arrivas|giris|gelis)([^a-z]|$)/.test(text) ||
+      /arr$/.test(baseName) || /(^|[^a-z])arr(\s|$)/.test(baseName)) {
+    return { mode: MODE_ARRIVALS, confidence: 0.99, reason: 'Arrivals dosya adı/kısaltması tanındı' };
+  }
+  if (/(^|[^a-z])(departure|departures|departus|depertur|cikis|cikan|ayrilis|check out|checkout)([^a-z]|$)/.test(text) ||
+      /co$/.test(baseName) || /cikan$/.test(baseName) || /depart$/.test(baseName)) {
+    return { mode: MODE_DEPARTURES, confidence: 0.99, reason: 'Departures / CO / ÇIKAN dosya adı tanındı' };
+  }
 
   return null;
 }
